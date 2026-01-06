@@ -7,7 +7,9 @@ using System.Threading.Tasks;
 
 namespace Assistant.App;
 
-public class UIHostedService(IObservable<KekMessage?> kekMessageObservable) : BackgroundService
+public class UIHostedService(
+    IObservable<IMessage?> kekMessageObservable
+) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -17,9 +19,23 @@ public class UIHostedService(IObservable<KekMessage?> kekMessageObservable) : Ba
             Color = ConsoleColor.Cyan
         });
 
-        kekMessageObservable.Subscribe(msg =>
+        kekMessageObservable.Subscribe(async msg =>
         {
-            AnsiConsole.MarkupLine($"[green]✓ {msg?.Text} [/]");
+            if (msg is StreamingMessage streamingMessage)
+            {
+                var startTime = DateTime.Now;
+                AnsiConsole.WriteLine();
+                AnsiConsole.Write(new Rule($"[cyan]{streamingMessage.Name}[/] [grey][[{startTime:HH:mm:ss}]][/]").LeftJustified());
+                await foreach (var text in streamingMessage.LiveContent)
+                {
+                    AnsiConsole.Markup($"[yellow]{Markup.Escape(text)}[/]");
+                }
+
+                var endTime = DateTime.Now;
+                var duration = endTime - startTime;
+                AnsiConsole.WriteLine();
+                AnsiConsole.Write(new Rule($"[grey][[{endTime:HH:mm:ss}]] (took {duration.TotalSeconds:F1}s)[/]").RightJustified());
+            }
         });
 
         return Task.CompletedTask;

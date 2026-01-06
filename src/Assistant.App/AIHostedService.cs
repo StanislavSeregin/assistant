@@ -4,6 +4,7 @@ using OpenAI;
 using OpenAI.Chat;
 using System;
 using System.ClientModel;
+using System.Linq;
 using System.Reactive.Subjects;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,7 +12,7 @@ using System.Threading.Tasks;
 namespace Assistant.App;
 
 public class AIHostedService(
-    ISubject<KekMessage?> kekMessageSubject,
+    ISubject<IMessage?> kekMessageSubject,
     IOptions<Settings> options
 ) : BackgroundService
 {
@@ -27,10 +28,13 @@ public class AIHostedService(
 
         var agent = new OpenAIClient(apiKeyCredential, openAIClientOptions)
             .GetChatClient(_settings.ModelName)
-            .CreateAIAgent(instructions: "You are good at telling jokes.", name: "Joker");
+            .CreateAIAgent(instructions: "You are good at telling jokes.", name: "Joker") ?? throw new InvalidOperationException();
 
-        var response = await agent.RunAsync("Tell me a joke about a pirate.", cancellationToken: stoppingToken);
+        var liveContent = agent
+            .RunStreamingAsync("Tell me a joke about a pirate.", cancellationToken: stoppingToken)
+            .Where(update => !string.IsNullOrEmpty(update.Text))
+            .Select(update => update.Text);
 
-        kekMessageSubject.OnNext(new KekMessage(response.ToString()));
+        kekMessageSubject.OnNext(new StreamingMessage("Assistant", liveContent));
     }
 }
