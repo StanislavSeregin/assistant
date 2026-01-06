@@ -19,25 +19,31 @@ public class UIHostedService(
             Color = ConsoleColor.Cyan
         });
 
-        kekMessageObservable.Subscribe(async msg =>
+        kekMessageObservable.Subscribe(async message =>
         {
-            if (msg is StreamingMessage streamingMessage)
+            await (message switch
             {
-                var startTime = DateTime.Now;
-                AnsiConsole.WriteLine();
-                AnsiConsole.Write(new Rule($"[cyan]{streamingMessage.Name}[/] [grey][[{startTime:HH:mm:ss}]][/]").LeftJustified());
-                await foreach (var text in streamingMessage.LiveContent)
-                {
-                    AnsiConsole.Markup($"[yellow]{Markup.Escape(text)}[/]");
-                }
-
-                var endTime = DateTime.Now;
-                var duration = endTime - startTime;
-                AnsiConsole.WriteLine();
-                AnsiConsole.Write(new Rule($"[grey][[{endTime:HH:mm:ss}]] (took {duration.TotalSeconds:F1}s)[/]").RightJustified());
-            }
+                StreamingMessage msg => HandleMessage(msg),
+                _ => Task.CompletedTask
+            });
         });
 
         return Task.CompletedTask;
+    }
+
+    private static async Task HandleMessage(StreamingMessage streamingMessage)
+    {
+        var startTime = DateTime.Now;
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(new Rule($"[cyan]{streamingMessage.Name}[/] [grey][[{startTime:HH:mm:ss}]][/]").LeftJustified());
+        await foreach (var text in streamingMessage.LiveContent)
+        {
+            AnsiConsole.Markup($"[yellow]{Markup.Escape(text)}[/]");
+        }
+
+        var endTime = DateTime.Now;
+        var duration = endTime - startTime;
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(new Rule($"[grey][[{endTime:HH:mm:ss}]] (took {duration.TotalSeconds:F1}s)[/]").RightJustified());
     }
 }
