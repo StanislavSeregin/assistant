@@ -2,28 +2,34 @@
 using Spectre.Console;
 using System;
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Assistant.App;
 
 public class UIHostedService(
-    IObservable<IMessage?> kekMessageObservable
+    ISubject<IUIEvent> uiEventSubject,
+    IObservable<IAIEvent?> aiEventObservable
 ) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        Console.OutputEncoding = Encoding.UTF8;
+        Console.InputEncoding = Encoding.UTF8;
         AnsiConsole.Write(new FigletText("Assistant")
         {
             Justification = Justify.Center,
             Color = ConsoleColor.Cyan
         });
 
-        kekMessageObservable.Subscribe(async message =>
+        HandleRequest();
+        aiEventObservable.Subscribe(async aiEvent =>
         {
-            await (message switch
+            await (aiEvent switch
             {
-                StreamingMessage msg => HandleMessage(msg),
+                StreamingAIResponse msg => HandleMessage(msg),
                 _ => Task.CompletedTask
             });
         });
@@ -31,7 +37,14 @@ public class UIHostedService(
         return Task.CompletedTask;
     }
 
-    private static async Task HandleMessage(StreamingMessage streamingMessage)
+    private void HandleRequest()
+    {
+        AnsiConsole.WriteLine();
+        var request = AnsiConsole.Ask<string>(">");
+        uiEventSubject.OnNext(new HumanMessage(request));
+    }
+
+    private async Task HandleMessage(StreamingAIResponse streamingMessage)
     {
         var startTime = DateTime.Now;
         AnsiConsole.WriteLine();
@@ -45,5 +58,6 @@ public class UIHostedService(
         var duration = endTime - startTime;
         AnsiConsole.WriteLine();
         AnsiConsole.Write(new Rule($"[grey][[{endTime:HH:mm:ss}]] (took {duration.TotalSeconds:F1}s)[/]").RightJustified());
+        HandleRequest();
     }
 }

@@ -5,17 +5,24 @@ using System.Reactive.Subjects;
 
 namespace Assistant.App;
 
-public interface IMessage;
+public interface IAIEvent;
 
-public record StreamingMessage(string Name, IAsyncEnumerable<string> LiveContent) : IMessage;
+public record StreamingAIResponse(string Name, IAsyncEnumerable<string> LiveContent) : IAIEvent;
+
+public interface IUIEvent;
+
+public record HumanMessage(string Text) : IUIEvent;
 
 public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddMessages(this IServiceCollection services)
     {
-        var messageSubject = new BehaviorSubject<IMessage?>(default);
+        var messageSubject = new BehaviorSubject<IAIEvent?>(default);
+        var humanRequestSubject = new Subject<IUIEvent>();
         return services
-            .AddSingleton<ISubject<IMessage?>>(messageSubject)
-            .AddSingleton<IObservable<IMessage?>>(messageSubject);
+            .AddSingleton<ISubject<IAIEvent?>>(messageSubject)
+            .AddSingleton<IObservable<IAIEvent?>>(messageSubject)
+            .AddSingleton<ISubject<IUIEvent>>(humanRequestSubject)
+            .AddSingleton<IObservable<IUIEvent>>(humanRequestSubject);
     }
 }

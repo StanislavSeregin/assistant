@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Hosting;
+﻿using Microsoft.Agents.AI;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
@@ -12,13 +13,16 @@ using System.Threading.Tasks;
 namespace Assistant.App;
 
 public class AIHostedService(
-    ISubject<IMessage?> kekMessageSubject,
+    ISubject<IAIEvent?> aiEventSubject,
+    IObservable<IUIEvent> uiEventObservable,
     IOptions<Settings> options
 ) : BackgroundService
 {
+    private const string AGENT_NAME = "Фроська";
+
     private readonly Settings _settings = options.Value;
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var apiKeyCredential = new ApiKeyCredential(_settings.ApiKey);
         var openAIClientOptions = new OpenAIClientOptions()
@@ -28,13 +32,28 @@ public class AIHostedService(
 
         var agent = new OpenAIClient(apiKeyCredential, openAIClientOptions)
             .GetChatClient(_settings.ModelName)
-            .CreateAIAgent(instructions: "You are good at telling jokes.", name: "Joker") ?? throw new InvalidOperationException();
+            .CreateAIAgent(instructions: "Ты полезный ассистент", name: AGENT_NAME) ?? throw new InvalidOperationException();
 
+        var thread = agent.GetNewThread();
+        uiEventObservable.Subscribe(async uiEvent =>
+        {
+            await (uiEvent switch
+            {
+                HumanMessage msg => HandleMessage(msg, agent, thread, stoppingToken),
+                _ => Task.CompletedTask
+            });
+        });
+
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleMessage(HumanMessage humanMessage, ChatClientAgent agent, AgentThread? agentThread, CancellationToken cancellationToken)
+    {
         var liveContent = agent
-            .RunStreamingAsync("Tell me a joke about a pirate.", cancellationToken: stoppingToken)
+            .RunStreamingAsync(humanMessage.Text, agentThread, cancellationToken: cancellationToken)
             .Where(update => !string.IsNullOrEmpty(update.Text))
             .Select(update => update.Text);
 
-        kekMessageSubject.OnNext(new StreamingMessage("Assistant", liveContent));
+        aiEventSubject.OnNext(new StreamingAIResponse(AGENT_NAME, liveContent));
     }
 }
