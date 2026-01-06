@@ -11,7 +11,8 @@ public static class Program
     {
         var builder = Host.CreateDefaultBuilder(args);
         builder.ConfigureLogging(b => b.ClearProviders());
-        builder.ConfigureServices(services => services
+        builder.ConfigureServices((context, services) => services
+            .Configure<Settings>(context.Configuration.GetSection("Settings"))
             .AddMessages()
             .AddHostedService<UIHostedService>()
             .AddHostedService<AIHostedService>());

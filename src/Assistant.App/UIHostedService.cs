@@ -11,7 +11,11 @@ public class UIHostedService(IObservable<KekMessage?> kekMessageObservable) : Ba
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        AnsiConsole.MarkupLine("[green]✓ Build completed successfully[/]");
+        AnsiConsole.Write(new FigletText("Assistant")
+        {
+            Justification = Justify.Center,
+            Color = ConsoleColor.Cyan
+        });
 
         kekMessageObservable.Subscribe(msg =>
         {
