@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace Assistant.App
 {
-    public class InitActorsHostedService(ActorSystem system) : IHostedService
+    public class BootstrapHostedService(ActorSystem system) : IHostedService
     {
         private PID[] Pids { get; set; } = [];
 
@@ -20,7 +20,7 @@ namespace Assistant.App
 
         private IEnumerable<PID> StartActors()
         {
-            var coordinatorProps = system.DI().PropsFor<Coordinator.Actor>();
+            var coordinatorProps = system.DI().PropsFor<MainAgent.Actor>();
             yield return system.Root.Spawn(coordinatorProps);
 
             var guiProps = system.DI().PropsFor<GUI.Actor>();

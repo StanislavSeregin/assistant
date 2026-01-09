@@ -1,6 +1,4 @@
 ﻿using Assistant.App.Actors;
-using Assistant.App.Functions;
-using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -27,10 +25,10 @@ public class Program
         builder.ConfigureLogging(b => b.ClearProviders());
         builder.ConfigureServices((context, services) => services
             .Configure<Settings>(context.Configuration.GetSection("Settings"))
-            .AddHostedService<InitActorsHostedService>()
+            .AddHostedService<BootstrapHostedService>()
             .AddSingleton(sp => new ActorSystem().WithServiceProvider(sp))
             .AddTransient<GUI.Actor>()
-            .AddTransient<Coordinator.Actor>());
+            .AddTransient<MainAgent.Actor>());
 
         var host = builder.Build();
         return host.RunAsync();

@@ -54,7 +54,7 @@ public static class GUI
             var request = AnsiConsole.Ask<string>(">");
             if (context.Sender is { } pid)
             {
-                var envelope = new MessageEnvelope(new Ask(request), context.Self);
+                var envelope = new MessageEnvelope(new Messages.Ask(request), context.Self);
                 context.Send(pid, envelope);
             }
 
@@ -77,7 +77,7 @@ public static class GUI
             AnsiConsole.Write(new Rule($"[grey][[{endTime:HH:mm:ss}]] (took {duration.TotalSeconds:F1}s)[/]").RightJustified());
             if (context.Sender is { } pid)
             {
-                var envelope = new MessageEnvelope(new Rendered(), context.Self);
+                var envelope = new MessageEnvelope(new Messages.Rendered(), context.Self);
                 context.Send(pid, envelope);
             }
         }
