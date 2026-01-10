@@ -20,11 +20,8 @@ namespace Assistant.App
 
         private IEnumerable<PID> StartActors()
         {
-            var coordinatorProps = system.DI().PropsFor<MainAgent.Actor>();
+            var coordinatorProps = system.DI().PropsFor<User.Actor>();
             yield return system.Root.Spawn(coordinatorProps);
-
-            var guiProps = system.DI().PropsFor<GUI.Actor>();
-            yield return GUI.Spawn(system, guiProps);
         }
 
         public Task StopAsync(CancellationToken cancellationToken)

@@ -27,9 +27,8 @@ public class Program
             .Configure<Settings>(context.Configuration.GetSection("Settings"))
             .AddHostedService<BootstrapHostedService>()
             .AddSingleton(sp => new ActorSystem().WithServiceProvider(sp))
-            .AddTransient<GUI.Actor>()
-            .AddTransient<MainAgent.Actor>()
-            .AddTransient<SubAgent.Actor>());
+            .AddTransient<Agent.Actor>()
+            .AddTransient<User.Actor>());
 
         var host = builder.Build();
         return host.RunAsync();
