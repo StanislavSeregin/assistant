@@ -28,7 +28,8 @@ public class Program
             .AddHostedService<BootstrapHostedService>()
             .AddSingleton(sp => new ActorSystem().WithServiceProvider(sp))
             .AddTransient<GUI.Actor>()
-            .AddTransient<MainAgent.Actor>());
+            .AddTransient<MainAgent.Actor>()
+            .AddTransient<SubAgent.Actor>());
 
         var host = builder.Build();
         return host.RunAsync();

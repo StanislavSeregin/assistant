@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
 using Proto;
+using Proto.DependencyInjection;
 using System;
 using System.ClientModel;
 using System.ComponentModel;
@@ -14,7 +15,7 @@ namespace Assistant.App.Actors;
 
 public static class MainAgent
 {
-    public record RunSubagent(string Name, string Instructions, string Message);
+    public record RunSubAgent(string Name, string Instructions, string Message);
 
     public class Actor(IOptions<Settings> options) : IActor
     {
@@ -32,8 +33,9 @@ public static class MainAgent
             {
                 Started => Init(context),
                 Messages.Ask msg => HandleAsk(context, msg),
-                Messages.Rendered => RequestAsk(context),
-                RunSubagent msg => RunSubagent(context, msg),
+                Messages.Rendered => Task.CompletedTask, // RequestAsk(context) // TODO: Add condition
+                RunSubAgent msg => RunSubAgent(context, msg),
+                Messages.ResponseFromSubAgent msg => HandleResponseFromSubAgent(context, msg),
                 _ => Task.CompletedTask
             };
         }
@@ -72,7 +74,7 @@ public static class MainAgent
         {
             if (System is not null && Self is not null)
             {
-                var payload = new RunSubagent(name, instructions, message);
+                var payload = new RunSubAgent(name, instructions, message);
                 var envelope = new MessageEnvelope(payload, Self);
                 System.Root.Send(Self, envelope);
             }
@@ -91,18 +93,18 @@ public static class MainAgent
 
         private Task HandleAsk(IContext context, Messages.Ask msg)
         {
-            var chatMessage = new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, msg.Text);
-            if (Agent is { } agent)
+            if (Agent is not null)
             {
-                var liveContent = agent
+                var chatMessage = new Microsoft.Extensions.AI.ChatMessage(ChatRole.User, msg.Text);
+                var liveContent = Agent
                     .RunStreamingAsync(chatMessage, Thread, cancellationToken: context.CancellationToken)
                     .Where(update => !string.IsNullOrEmpty(update.Text))
                     .Select(update => update.Text);
 
-                var message = new GUI.Streaming(agent.Name, liveContent);
+                var streaming = new GUI.Streaming(Agent.Name, liveContent);
                 if (GUI.FindPid(context.System) is { } pid)
                 {
-                    var envelope = new MessageEnvelope(message, context.Self);
+                    var envelope = new MessageEnvelope(streaming, context.Self);
                     context.Send(pid, envelope);
                 }
             }
@@ -110,9 +112,40 @@ public static class MainAgent
             return Task.CompletedTask;
         }
 
-        private async Task RunSubagent(IContext context, RunSubagent msg)
+        private Task RunSubAgent(IContext context, RunSubAgent msg)
         {
-            // TODO
+            var parentName = Agent?.Name ?? "Assistant";
+            var payload = new SubAgent.RunSubAgent(parentName, msg.Name, msg.Instructions, msg.Message);
+            var envelope = new MessageEnvelope(payload, context.Self);
+            var props = context.System.DI().PropsFor<SubAgent.Actor>();
+            var pid = context.Spawn(props);
+            context.Send(pid, envelope);
+            return Task.CompletedTask;
+        }
+
+        private Task HandleResponseFromSubAgent(IContext context, Messages.ResponseFromSubAgent msg)
+        {
+            if (Agent is not null)
+            {
+                var chatMessage = new Microsoft.Extensions.AI.ChatMessage(ChatRole.Assistant, msg.Text)
+                {
+                    AuthorName = msg.Name
+                };
+
+                var liveContent = Agent
+                    .RunStreamingAsync(chatMessage, Thread, cancellationToken: context.CancellationToken)
+                    .Where(update => !string.IsNullOrEmpty(update.Text))
+                    .Select(update => update.Text);
+
+                var streaming = new GUI.Streaming(Agent.Name, liveContent);
+                if (GUI.FindPid(context.System) is { } pid)
+                {
+                    var envelope = new MessageEnvelope(streaming, context.Self);
+                    context.Send(pid, envelope);
+                }
+            }
+
+            return Task.CompletedTask;
         }
     }
 }
