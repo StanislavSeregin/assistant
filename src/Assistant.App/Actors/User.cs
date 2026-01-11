@@ -11,8 +11,6 @@ namespace Assistant.App.Actors;
 
 public static class User
 {
-    public record AskRequest;
-
     public record Streaming(string? Name, IAsyncEnumerable<string> LiveContent);
 
     public class Actor : IActor
@@ -29,8 +27,8 @@ public static class User
             return context.Message switch
             {
                 Started => Init(context),
-                AskRequest when context.Sender is { } pid => Ask(context, pid),
-                Streaming msg => RenderStreaming(context, msg),
+                Agent.Ask when context.Sender is { } pid => HandleAsk(context, pid),
+                Streaming msg => RenderStreaming(msg),
                 _ => Task.CompletedTask
             };
         }
@@ -46,7 +44,7 @@ public static class User
             });
 
             var pid = SpawnAgent(context);
-            await Ask(context, pid);
+            await HandleAsk(context, pid);
         }
 
         private static PID SpawnAgent(IContext context)
@@ -59,17 +57,17 @@ public static class User
             return pid;
         }
 
-        private static Task Ask(IContext context, PID pid)
+        private static Task HandleAsk(IContext context, PID pid)
         {
             AnsiConsole.WriteLine();
             var content = AnsiConsole.Ask<string>(">");
-            var payload = new Agent.Ask(ChatRole.User, Author: null, Content: content);
+            var payload = new Agent.Ask(ChatRole.User, From: null, Content: content);
             var envelope = new MessageEnvelope(payload, context.Self);
             context.Send(pid, envelope);
             return Task.CompletedTask;
         }
 
-        private static async Task RenderStreaming(IContext context, Streaming response)
+        private static async Task RenderStreaming(Streaming response)
         {
             var startTime = DateTime.Now;
             AnsiConsole.WriteLine();
@@ -83,11 +81,6 @@ public static class User
             var duration = endTime - startTime;
             AnsiConsole.WriteLine();
             AnsiConsole.Write(new Rule($"[grey][[{endTime:HH:mm:ss}]] (took {duration.TotalSeconds:F1}s)[/]").RightJustified());
-            if (context.Sender is { } pid)
-            {
-                var envelope = new MessageEnvelope(new Messages.Rendered(), context.Self);
-                context.Send(pid, envelope);
-            }
         }
     }
 }

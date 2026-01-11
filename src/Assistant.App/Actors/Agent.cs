@@ -4,12 +4,11 @@ using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
 using Proto;
+using Proto.DependencyInjection;
 using System;
 using System.ClientModel;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace Assistant.App.Actors;
@@ -18,10 +17,16 @@ public static class Agent
 {
     public record Init(string Name, string Instructions);
 
-    public record Ask(ChatRole Role, string? Author, string? Content);
+    public record Ask(ChatRole Role, string? From, string? Content, string? To = null);
+
+    public record NameRequest;
+
+    public record NameResponse(string Name);
 
     public class Actor(IOptions<Settings> options) : IActor
     {
+        private record ToolInvocation(Func<IContext , Task> Func);
+
         private PID? Self { get; set; }
 
         private ActorSystem? System { get; set; }
@@ -35,20 +40,12 @@ public static class Agent
             return context.Message switch
             {
                 Init msg => Init(context, msg),
-                Ask msg => HandleAsk(context, msg),
+                Ask msg when msg.To is null || msg.To == Agent?.Name => HandleAsk(context, msg),
+                NameRequest => RespondCurrentName(context),
                 User.Streaming => ForwardToParent(context),
+                ToolInvocation msg => msg.Func(context),
                 _ => Task.CompletedTask
             };
-        }
-
-        private static Task ForwardToParent(IContext context)
-        {
-            if (context.Parent is { } pid)
-            {
-                context.Forward(pid);
-            }
-
-            return Task.CompletedTask;
         }
 
         private async Task Init(IContext context, Init msg)
@@ -71,9 +68,22 @@ public static class Agent
             return openAIClient
                 .GetChatClient(options.Value.ModelName)
                 .CreateAIAgent(name: msg.Name, instructions: msg.Instructions, tools: [
-                    AIFunctionFactory.Create(HiringRequestTool),
-                    AIFunctionFactory.Create(GetEmployedStaffTool),
-                    AIFunctionFactory.Create(WriteToEmployedStaff)]);
+                    AIFunctionFactory.Create(MessageSupervisorTool),
+                    AIFunctionFactory.Create(MessageSubordinateTool),
+                    AIFunctionFactory.Create(RequestListSubordinatesTool),
+                    AIFunctionFactory.Create(RequestHireTool)]);
+        }
+
+        private Task RespondCurrentName(IContext context)
+        {
+            if (context.Sender is { } pid)
+            {
+                var payload = new NameResponse(Agent?.Name ?? "Anonymous");
+                var envelope = new MessageEnvelope(payload, context.Self);
+                context.Send(pid, envelope);
+            }
+
+            return Task.CompletedTask;
         }
 
         private Task HandleAsk(IContext context, Ask msg)
@@ -82,12 +92,12 @@ public static class Agent
             {
                 var chatMessage = new Microsoft.Extensions.AI.ChatMessage(msg.Role, msg.Content)
                 {
-                    AuthorName = msg.Author
+                    AuthorName = msg.From
                 };
 
-                var stream = Agent.RunStreamingAsync(chatMessage, Thread, cancellationToken: context.CancellationToken);
-                var wrappedStream = WrappedResponseStream(stream, Agent.Name, context, pid);
-                var payload = new User.Streaming(Agent.Name, wrappedStream);
+                var updates = Agent.RunStreamingAsync(chatMessage, Thread, cancellationToken: context.CancellationToken);
+                var stream = updates.Where(update => !string.IsNullOrEmpty(update.Text)).Select(update => update.Text);
+                var payload = new User.Streaming(Agent.Name, stream);
                 var envelope = new MessageEnvelope(payload, context.Self);
                 context.Send(pid, envelope);
             }
@@ -95,57 +105,105 @@ public static class Agent
             return Task.CompletedTask;
         }
 
-        private static async IAsyncEnumerable<string> WrappedResponseStream(
-            IAsyncEnumerable<AgentRunResponseUpdate> updates,
-            string? author,
-            IContext context,
-            PID pid)
+        private static Task ForwardToParent(IContext context)
         {
-            var texts = updates
-                .Where(update => !string.IsNullOrEmpty(update.Text))
-                .Select(update => update.Text);
-
-            var sb = new StringBuilder();
-            await foreach (var text in texts)
+            if (context.Parent is { } pid)
             {
-                sb.Append(text);
-                yield return text;
+                context.Forward(pid);
             }
 
-            var payload = new Ask(ChatRole.Assistant, author, sb.ToString());
-            var envelope = new MessageEnvelope(payload, context.Self);
-            context.Send(pid, envelope);
+            return Task.CompletedTask;
         }
 
-        [Description("""
-        Creates a new job hire request for the HR department to start the recruitment process.
-        This includes the job title and a detailed job description for the HR team to use in candidate sourcing and screening.
-        """)]
-        public void HiringRequestTool(
-            [Description("The title of the position to be filled (e.g., 'Senior Software Engineer', 'Marketing Manager').")] string jobTitle,
-            [Description("A detailed description of the role, including responsibilities, required skills, qualifications, and any other relevant information for HR.")] string jobDescription)
+        [Description("Sends a message to your direct supervisor")]
+        public void MessageSupervisorTool([Description("Content for your immediate manager (report, request, or notification)")] string message)
         {
-            // TODO
+            var self = Self ?? throw new InvalidOperationException();
+            var system = System ?? throw new InvalidOperationException();
+            var agent = Agent ?? throw new InvalidOperationException();
+            var payload = new ToolInvocation(async context =>
+            {
+                if (context.Parent is { } pid)
+                {
+                    var payload = new Ask(ChatRole.Assistant, agent.Name, message);
+                    var envelope = new MessageEnvelope(payload, context.Self);
+                    context.Send(pid, envelope);
+                }
+            });
+
+            var envelope = new MessageEnvelope(payload, self);
+            system.Root.Send(self, envelope);
         }
 
-        [Description("""
-        Retrieves the current list of all employed staff members.
-        This list typically contains employee identifiers such as name and position.
-        """)]
-        public void GetEmployedStaffTool()
+        [Description("Sends a message to the employee holding the specified position")]
+        public void MessageSubordinateTool(
+            [Description("Job title of the direct report (must match exactly from team roster)")] string subordinatePosition,
+            [Description("Content to deliver (instruction, query, or feedback)")] string message)
         {
-            // TODO
+            var self = Self ?? throw new InvalidOperationException();
+            var system = System ?? throw new InvalidOperationException();
+            var agent = Agent ?? throw new InvalidOperationException();
+            var payload = new ToolInvocation(context =>
+            {
+                var payload = new Ask(ChatRole.Assistant, agent.Name, message, subordinatePosition);
+                var envelope = new MessageEnvelope(payload, context.Self);
+                foreach (var pid in context.Children)
+                {
+                    context.Send(pid, envelope);
+                }
+
+                return Task.CompletedTask;
+            });
+
+            var envelope = new MessageEnvelope(payload, self);
+            system.Root.Send(self, envelope);
         }
 
-        [Description("""
-        Sends a message to a specific employed staff member.
-        The tool identifies the employee by their job title and delivers the provided message.
-        """)]
-        public void WriteToEmployedStaff(
-            [Description("The job title of the employed staff member who should receive the message.")] string jobTitle,
-            [Description("The content of the message to be sent to the employee.")] string message)
+        
+
+        [Description("Returns the job titles of your current direct reports")]
+        public void RequestListSubordinatesTool()
         {
-            // TODO
+            var self = Self ?? throw new InvalidOperationException();
+            var system = System ?? throw new InvalidOperationException();
+            var payload = new ToolInvocation(async context =>
+            {
+                var names = await Task.WhenAll(context.Children.Select(pid =>
+                {
+                    var payload = new NameRequest();
+                    var envelope = new MessageEnvelope(payload, context.Self);
+                    return context.RequestAsync<NameResponse>(pid, envelope);
+                }));
+
+                var message = $"Tool response: [{string.Join("; ", names)}]";
+                var payload = new Ask(ChatRole.Tool, nameof(RequestListSubordinatesTool), message);
+                var envelope = new MessageEnvelope(payload, context.Self);
+                context.Send(context.Self, envelope);
+            });
+
+            var envelope = new MessageEnvelope(payload, self);
+            system.Root.Send(self, envelope);
+        }
+
+        [Description("Submits a hiring request for a new direct report to your manager")]
+        public void RequestHireTool(
+            [Description("Job title of the open position (e.g., 'Senior Analyst')")] string position,
+            [Description("Official responsibilities and requirements for the role")] string jobDescription)
+        {
+            var self = Self ?? throw new InvalidOperationException();
+            var system = System ?? throw new InvalidOperationException();
+            var payload = new ToolInvocation(context =>
+            {
+                var props = context.System.DI().PropsFor<Actor>();
+                var pid = context.Spawn(props);
+                var payload = new Init(position, jobDescription);
+                var envelope = new MessageEnvelope(payload, context.Self);
+                context.Send(pid, envelope);
+                return Task.CompletedTask;
+            });
+
+            var envelope = new MessageEnvelope(payload, self);
+            system.Root.Send(self, envelope);
         }
     }
 }
