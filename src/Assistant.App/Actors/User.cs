@@ -1,10 +1,8 @@
-﻿using Microsoft.Extensions.AI;
-using Proto;
+﻿using Proto;
 using Proto.DependencyInjection;
 using Spectre.Console;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,14 +11,7 @@ namespace Assistant.App.Actors;
 
 public static class User
 {
-    public record Streaming(string? From, string? To, IAsyncEnumerable<string> LiveContent)
-    {
-        public static Streaming FromString(string? from, string? to, string? content)
-        {
-            var stream = AsyncEnumerable.Empty<string>().Prepend(content ?? string.Empty);
-            return new Streaming(from, to, stream);
-        }
-    }
+    public record MessageLog(string? From, string? To, string? Content);
 
     public class Actor : IActor
     {
@@ -40,7 +31,7 @@ public static class User
             return context.Message switch
             {
                 Started => Init(context),
-                Agent.Ask when context.Sender is { } pid => HandleAsk(context, pid),
+                Agent.Email when context.Sender is { } pid => HandleAsk(context, pid),
                 Stopped => Unsubscribe(),
                 _ => Task.CompletedTask
             };
@@ -64,7 +55,7 @@ public static class User
 
         private void RegisterSubscriptions(IContext context)
         {
-            _subscriptions.Add(context.System.EventStream.Subscribe<Streaming>(RenderStreaming));
+            _subscriptions.Add(context.System.EventStream.Subscribe<MessageLog>(RenderLog));
         }
 
         private Task Unsubscribe()
@@ -94,7 +85,7 @@ public static class User
             {
                 AnsiConsole.WriteLine();
                 var input = AnsiConsole.Prompt(new TextPrompt<string>(">").AllowEmpty());
-                var payload = new Agent.Ask(ChatRole.User, From: "User", Content: input);
+                var payload = new Agent.Email(From: "User", To: default, "Request", Body: input);
                 var envelope = new MessageEnvelope(payload, context.Self);
                 context.Send(pid, envelope);
             }
@@ -104,7 +95,7 @@ public static class User
             }
         }
 
-        private async Task RenderStreaming(Streaming msg)
+        private async Task RenderLog(MessageLog msg)
         {
             await _streamingLock.WaitAsync();
             try
@@ -117,11 +108,7 @@ public static class User
 
                 AnsiConsole.WriteLine();
                 AnsiConsole.Write(new Rule($"[cyan]{from}{to}[/] [grey][[{startTime:HH:mm:ss}]][/]").LeftJustified());
-                await foreach (var text in msg.LiveContent)
-                {
-                    AnsiConsole.Markup($"[yellow]{Markup.Escape(text)}[/]");
-                }
-
+                AnsiConsole.Markup($"[yellow]{Markup.Escape(msg.Content ?? "[EMPTY]")}[/]");
                 var endTime = DateTime.Now;
                 var duration = endTime - startTime;
                 AnsiConsole.WriteLine();
