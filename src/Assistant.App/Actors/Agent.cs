@@ -120,7 +120,7 @@ public static class Agent
                 }
             }
 
-            if (context.Sender is { } sender)
+            if (context.Sender is { } sender && sender != context.Self)
             {
                 var payload = new Ask(ChatRole.Assistant, Agent?.Name, sb.ToString());
                 var envelope = new MessageEnvelope(payload, context.Self);
@@ -141,7 +141,7 @@ public static class Agent
             }
         }
 
-        [Description("Sends a message to the employee holding the specified position")]
+        [Description("Sends a message to the employee")]
         public string MessageSubordinateTool(
             [Description("Job title of the direct report (must match exactly from team roster)")] string subordinatePosition,
             [Description("Content to deliver (instruction, query, or feedback)")] string message)
@@ -149,6 +149,9 @@ public static class Agent
             var self = Self ?? throw new InvalidOperationException();
             var system = System ?? throw new InvalidOperationException();
             var agent = Agent ?? throw new InvalidOperationException();
+
+            system.EventStream.Publish(User.Streaming.FromString(Agent?.Name, subordinatePosition, message));
+
             var payload = new ToolInvocation(context =>
             {
                 var payload = new Ask(ChatRole.Assistant, agent.Name, message, subordinatePosition);
@@ -163,7 +166,7 @@ public static class Agent
 
             var envelope = new MessageEnvelope(payload, self);
             system.Root.Send(self, envelope);
-            return "Sent";
+            return "Message sent, wait for a reply.";
         }
 
         
@@ -173,6 +176,9 @@ public static class Agent
         {
             var self = Self ?? throw new InvalidOperationException();
             var system = System ?? throw new InvalidOperationException();
+
+            system.EventStream.Publish(User.Streaming.FromString(Agent?.Name, nameof(RequestListSubordinatesTool), "Called"));
+
             var payload = new ToolInvocation(async context =>
             {
                 var names = await Task.WhenAll(context.Children.Select(async pid =>
@@ -190,7 +196,7 @@ public static class Agent
 
             var envelope = new MessageEnvelope(payload, self);
             system.Root.Send(self, envelope);
-            return "The list of employees will be sent";
+            return "Request sent, wait for a reply.";
         }
 
         [Description("Submits a hiring request for a new direct report to your manager")]
@@ -200,16 +206,15 @@ public static class Agent
         {
             var self = Self ?? throw new InvalidOperationException();
             var system = System ?? throw new InvalidOperationException();
+
+            system.EventStream.Publish(User.Streaming.FromString(Agent?.Name, nameof(RequestHireTool), $"""
+            {nameof(position)}: {position}
+            {nameof(jobDescription)}: {jobDescription}
+            """));
+
             var content = $"Employee '{position}' is now available!";
             var payload = new ToolInvocation(context =>
             {
-                var streaming = User.Streaming.FromString(Agent?.Name, nameof(RequestHireTool), $"""
-                {nameof(position)}: {position}
-                {nameof(jobDescription)}: {jobDescription}
-                """);
-
-                context.System.EventStream.Publish(streaming);
-
                 var props = context.System.DI().PropsFor<Actor>();
                 var pid = context.Spawn(props);
                 var payload = new Init(position, jobDescription);
@@ -221,7 +226,7 @@ public static class Agent
 
             var envelope = new MessageEnvelope(payload, self);
             system.Root.Send(self, envelope);
-            return $"Done";
+            return $"Request sent, wait for a reply.";
         }
     }
 }

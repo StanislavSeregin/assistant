@@ -40,7 +40,7 @@ public static class User
             return context.Message switch
             {
                 Started => Init(context),
-                // Agent.Ask when context.Sender is { } pid => HandleAsk(context, pid),
+                Agent.Ask when context.Sender is { } pid => HandleAsk(context, pid),
                 Stopped => Unsubscribe(),
                 _ => Task.CompletedTask
             };
@@ -87,14 +87,21 @@ public static class User
             return pid;
         }
 
-        private static async Task HandleAsk(IContext context, PID pid)
+        private async Task HandleAsk(IContext context, PID pid)
         {
-            await Task.Delay(100);
-            AnsiConsole.WriteLine();
-            var content = AnsiConsole.Ask<string>(">");
-            var payload = new Agent.Ask(ChatRole.User, From: "User", Content: content);
-            var envelope = new MessageEnvelope(payload, context.Self);
-            context.Send(pid, envelope);
+            await _streamingLock.WaitAsync();
+            try
+            {
+                AnsiConsole.WriteLine();
+                var input = AnsiConsole.Prompt(new TextPrompt<string>(">").AllowEmpty());
+                var payload = new Agent.Ask(ChatRole.User, From: "User", Content: input);
+                var envelope = new MessageEnvelope(payload, context.Self);
+                context.Send(pid, envelope);
+            }
+            finally
+            {
+                _streamingLock.Release();
+            }
         }
 
         private async Task RenderStreaming(Streaming msg)
