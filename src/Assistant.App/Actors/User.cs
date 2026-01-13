@@ -3,6 +3,7 @@ using Proto.DependencyInjection;
 using Spectre.Console;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,7 +32,7 @@ public static class User
             return context.Message switch
             {
                 Started => Init(context),
-                Agent.Email when context.Sender is { } pid => HandleAsk(context, pid),
+                // Agent.Email => HandleAsk(context, context.Sender),
                 Stopped => Unsubscribe(),
                 _ => Task.CompletedTask
             };
@@ -78,16 +79,22 @@ public static class User
             return pid;
         }
 
-        private async Task HandleAsk(IContext context, PID pid)
+        private async Task HandleAsk(IContext context, PID? pid)
         {
             await _streamingLock.WaitAsync();
             try
             {
                 AnsiConsole.WriteLine();
                 var input = AnsiConsole.Prompt(new TextPrompt<string>(">").AllowEmpty());
+                if (string.IsNullOrWhiteSpace(input))
+                {
+                    context.Forward(context.Self);
+                    return;
+                }
+
                 var payload = new Agent.Email(From: "User", To: default, "Request", Body: input);
                 var envelope = new MessageEnvelope(payload, context.Self);
-                context.Send(pid, envelope);
+                context.Send(pid ?? context.Children.First(), envelope);
             }
             finally
             {

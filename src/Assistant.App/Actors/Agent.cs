@@ -25,31 +25,43 @@ public static class Agent
 
     public class Actor(IOptions<Settings> options) : IActor
     {
-        private record InternalState(PID Self, ActorSystem System, ChatClientAgent Agent, AgentThread Thread);
-
-        private record InternalToolInvocation(Func<IContext, Task> Func);
-
-        private InternalState? _state;
-
         private readonly Dictionary<string, PID> _employees = [];
 
-        public Task ReceiveAsync(IContext context)
+        private ChatClientAgent? _agent;
+
+        private AgentThread? _thread;
+
+        private IContext? _context;
+
+        private ChatClientAgent Agent => _agent ?? throw new InvalidOperationException();
+
+        private AgentThread Thread => _thread ?? throw new InvalidOperationException();
+
+        private IContext Context => _context ?? throw new InvalidOperationException();
+
+        public async Task ReceiveAsync(IContext context)
         {
-            return context.Message switch
+            try
             {
-                Init msg => Init(context, msg),
-                Email msg when msg.To is null || msg.To == _state?.Agent.Name => HandleEmail(context, msg),
-                NameRequest => RespondCurrentName(context),
-                InternalToolInvocation msg => msg.Func(context),
-                _ => Task.CompletedTask
-            };
+                _context = context;
+                await (context.Message switch
+                {
+                    Init msg => Init(msg),
+                    Email msg when msg.To is null || msg.To == Agent.Name => HandleEmail(msg),
+                    NameRequest => RespondCurrentName(),
+                    _ => Task.CompletedTask
+                });
+            }
+            finally
+            {
+                _context = null;
+            }
         }
 
-        private async Task Init(IContext context, Init msg)
+        private async Task Init(Init msg)
         {
-            var agent = CreateChatClientAgent(msg);
-            var thread = agent.GetNewThread();
-            _state = new InternalState(context.Self, context.System, agent, thread);
+            _agent = CreateChatClientAgent(msg);
+            _thread = _agent.GetNewThread();
         }
 
         private ChatClientAgent CreateChatClientAgent(Init msg)
@@ -84,36 +96,38 @@ public static class Agent
                     AIFunctionFactory.Create(RequestHireTool)]);
         }
 
-        private async Task HandleEmail(IContext context, Email msg)
+        private async Task HandleEmail(Email msg)
         {
-            if (_state is { } state)
+            var chatMessage = new Microsoft.Extensions.AI.ChatMessage()
             {
-                var chatMessage = new Microsoft.Extensions.AI.ChatMessage()
-                {
-                    Role = ChatRole.Tool,
-                    AuthorName = "Mailing",
-                    Contents = [new TextContent($"""
-                    New email received!
+                Role = ChatRole.Assistant,
+                AuthorName = msg.From,
+                Contents = [new TextContent($"""
+                    NEW EMAIL - ACTION REQUIRED!
                     From: {msg.From}
                     Subject: {msg.Subject}
                     Body:
                     {msg.Body}
-                    """)]
-                };
 
-                var response = await state.Agent.RunAsync(chatMessage);
-                var log = new User.MessageLog(state.Agent.Name, To: default, $"[Think] {response.Text}");
-                context.System.EventStream.Publish(log);
-            }
+                    IMPORTANT: You must respond using your tools only:
+                    - Use MessageSupervisorTool to reply to your manager
+                    - Use MessageSubordinateTool to delegate tasks
+                    - DO NOT send plain text replies - communicate via email tools only
+                    """)]
+            };
+
+            var response = await Agent.RunAsync(chatMessage, Thread);
+            var log = new User.MessageLog(Agent.Name, To: default, $"[Think] {response.Text}");
+            Context.System.EventStream.Publish(log);
         }
 
-        private Task RespondCurrentName(IContext context)
+        private Task RespondCurrentName()
         {
-            if (context.Sender is { } pid && _state?.Agent?.Name is { } name)
+            if (Context.Sender is { } pid && Agent?.Name is { } name)
             {
                 var payload = new NameResponse(name);
-                var envelope = new MessageEnvelope(payload, context.Self);
-                context.Send(pid, envelope);
+                var envelope = new MessageEnvelope(payload, Context.Self);
+                Context.Send(pid, envelope);
             }
 
             return Task.CompletedTask;
@@ -124,24 +138,14 @@ public static class Agent
             [Description("Subject")] string subject,
             [Description("Body")] string body)
         {
-            var state = _state ?? throw new InvalidOperationException();
-            var payload = new InternalToolInvocation(context =>
+            if (Context.Parent is { } pid)
             {
-                if (context.Parent is { } pid)
-                {
-                    var log = new User.MessageLog(state.Agent.Name, "Supervisor", $"[{subject}] {body}");
-                    context.System.EventStream.Publish(log);
-
-                    var payload = new Email(state.Agent.Name, To: default, subject, body);
-                    var envelope = new MessageEnvelope(payload, context.Self);
-                    context.Send(pid, envelope);
-                }
-
-                return Task.CompletedTask;
-            });
-
-            var envelope = new MessageEnvelope(payload, state.Self);
-            state.System.Root.Send(state.Self, envelope);
+                var log = new User.MessageLog(Agent.Name, "Supervisor", $"[{subject}] {body}");
+                Context.System.EventStream.Publish(log);
+                var payload = new Email(Agent.Name, To: default, subject, body);
+                var envelope = new MessageEnvelope(payload, Context.Self);
+                Context.Send(pid, envelope);
+            }
         }
 
         [Description("Send email to employee")]
@@ -150,36 +154,26 @@ public static class Agent
             [Description("Subject")] string subject,
             [Description("Body")] string body)
         {
-            var state = _state ?? throw new InvalidOperationException();
-            var payload = new InternalToolInvocation(context =>
+            var log = new User.MessageLog(Agent.Name, to, $"[{subject}] {body}");
+            Context.System.EventStream.Publish(log);
+            var payload = new Email(Agent.Name, to, subject, body);
+            var envelope = new MessageEnvelope(payload, Context.Self);
+            foreach (var pid in Context.Children)
             {
-                var log = new User.MessageLog(state.Agent.Name, to, $"[{subject}] {body}");
-                context.System.EventStream.Publish(log);
-
-                var payload = new Email(state.Agent.Name, to, subject, body);
-                var envelope = new MessageEnvelope(payload, context.Self);
-                foreach (var pid in context.Children)
-                {
-                    context.Send(pid, envelope);
-                }
-
-                return Task.CompletedTask;
-            });
-
-            var envelope = new MessageEnvelope(payload, state.Self);
-            state.System.Root.Send(state.Self, envelope);
+                Context.Send(pid, envelope);
+            }
         }
 
         [Description("Get own employees")]
-        public string[] RequestListSubordinatesTool()
+        public string RequestListSubordinatesTool()
         {
-            if (_state is { } state)
-            {
-                var log = new User.MessageLog(nameof(RequestListSubordinatesTool), state.Agent.Name, $"[{string.Join("; ", _employees.Keys)}]");
-                state.System.EventStream.Publish(log);
-            }
+            var response = _employees.Keys.Count > 0
+                ? $"[{string.Join("; ", _employees.Keys)}]"
+                : "No employees";
 
-            return [.. _employees.Keys];
+            var log = new User.MessageLog(nameof(RequestListSubordinatesTool), Agent.Name, response);
+            Context.System.EventStream.Publish(log);
+            return response;
         }
 
         [Description("Hire a new employee")]
@@ -187,29 +181,21 @@ public static class Agent
             [Description("Job title of the open position (e.g., 'Senior Analyst')")] string position,
             [Description("Official responsibilities and requirements for the role")] string jobDescription)
         {
-            var state = _state ?? throw new InvalidOperationException();
-            var payload = new InternalToolInvocation(context =>
+            Context.System.EventStream.Publish(new User.MessageLog(Agent.Name, nameof(RequestHireTool), $"""
+            {nameof(position)}: {position}
+            {nameof(jobDescription)}: {jobDescription}
+            """));
+
+            if (_employees.ContainsKey(position) is false)
             {
-                state.System.EventStream.Publish(new User.MessageLog(state.Agent.Name, nameof(RequestHireTool), $"""
-                {nameof(position)}: {position}
-                {nameof(jobDescription)}: {jobDescription}
-                """));
+                var props = Context.System.DI().PropsFor<Actor>();
+                var pid = Context.Spawn(props);
+                _employees.Add(position, pid);
+                var payload = new Init(position, jobDescription);
+                var envelope = new MessageEnvelope(payload, Context.Self);
+                Context.Send(pid, envelope);
+            }
 
-                if (_employees.ContainsKey(position) is false)
-                {
-                    var props = context.System.DI().PropsFor<Actor>();
-                    var pid = context.Spawn(props);
-                    _employees.Add(position, pid);
-                    var payload = new Init(position, jobDescription);
-                    var envelope = new MessageEnvelope(payload, context.Self);
-                    context.Send(pid, envelope);
-                }
-
-                return Task.CompletedTask;
-            });
-
-            var envelope = new MessageEnvelope(payload, state.Self);
-            state.System.Root.Send(state.Self, envelope);
             return $"Employee '{position}' successfully hired!";
         }
     }
