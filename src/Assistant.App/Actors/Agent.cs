@@ -1,12 +1,10 @@
-﻿using Microsoft.Agents.AI;
+﻿using Assistant.App.Completions;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.Options;
-using OpenAI;
 using OpenAI.Chat;
 using Proto;
 using Proto.DependencyInjection;
 using System;
-using System.ClientModel;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Threading.Tasks;
@@ -23,7 +21,7 @@ public static class Agent
 
     public record NameResponse(string Name);
 
-    public class Actor(IOptions<Settings> options) : IActor
+    public class Actor(ChatClientFactory chatClientFactory) : IActor
     {
         private readonly Dictionary<string, PID> _employees = [];
 
@@ -66,14 +64,7 @@ public static class Agent
 
         private ChatClientAgent CreateChatClientAgent(Init msg)
         {
-            var apiKeyCredential = new ApiKeyCredential(options.Value.ApiKey);
-            var openAIClientOptions = new OpenAIClientOptions()
-            {
-                Endpoint = new Uri(options.Value.Endpoint)
-            };
-
-            var openAIClient = new OpenAIClient(apiKeyCredential, openAIClientOptions);
-            return openAIClient.GetChatClient(options.Value.ModelName).CreateAIAgent(
+            return chatClientFactory.GetChatClient().CreateAIAgent(
                 name: msg.Name,
                 instructions: $"""
                 == Communication Rules ==
@@ -116,7 +107,7 @@ public static class Agent
                     """)]
             };
 
-            var response = await Agent.RunAsync(chatMessage, Thread);
+            var response = await Agent.RunAsync(chatMessage, Thread, cancellationToken: Context.CancellationToken);
             var log = new User.MessageLog(Agent.Name, To: default, $"[Think] {response.Text}");
             Context.System.EventStream.Publish(log);
         }
@@ -177,7 +168,7 @@ public static class Agent
         }
 
         [Description("Hire a new employee")]
-        public string RequestHireTool(
+        public async Task<string> RequestHireTool(
             [Description("Job title of the open position (e.g., 'Senior Analyst')")] string position,
             [Description("Official responsibilities and requirements for the role")] string jobDescription)
         {
@@ -188,10 +179,19 @@ public static class Agent
 
             if (_employees.ContainsKey(position) is false)
             {
+                var resume = await HR.GetResume(chatClientFactory.GetChatClient(), position, jobDescription, Context.CancellationToken);
+                var instructions = $"""
+                Your position:
+                {position}
+
+                Your resume:
+                {resume}
+                """;
+
                 var props = Context.System.DI().PropsFor<Actor>();
                 var pid = Context.Spawn(props);
                 _employees.Add(position, pid);
-                var payload = new Init(position, jobDescription);
+                var payload = new Init(position, instructions);
                 var envelope = new MessageEnvelope(payload, Context.Self);
                 Context.Send(pid, envelope);
             }

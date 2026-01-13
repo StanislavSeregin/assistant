@@ -25,6 +25,7 @@ public class Program
         builder.ConfigureLogging(b => b.ClearProviders());
         builder.ConfigureServices((context, services) => services
             .Configure<Settings>(context.Configuration.GetSection("Settings"))
+            .AddSingleton<ChatClientFactory>()
             .AddHostedService<BootstrapHostedService>()
             .AddSingleton(sp => new ActorSystem().WithServiceProvider(sp))
             .AddTransient<Agent.Actor>()
