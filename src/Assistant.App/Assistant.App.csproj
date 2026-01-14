@@ -9,10 +9,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.0.0-preview.251219.1" />
+    <PackageReference Include="PrettyPrompt" Version="4.1.1" />
     <PackageReference Include="Proto.Actor" Version="1.8.0" />
-    <PackageReference Include="RadLine" Version="0.9.0" />
     <PackageReference Include="Spectre.Console" Version="0.54.0" />
-    <PackageReference Include="System.Reactive" Version="6.1.0" />
   </ItemGroup>
 
 </Project>

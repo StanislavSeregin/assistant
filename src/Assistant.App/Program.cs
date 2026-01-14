@@ -28,8 +28,9 @@ public class Program
             .AddSingleton<ChatClientFactory>()
             .AddHostedService<BootstrapHostedService>()
             .AddSingleton(sp => new ActorSystem().WithServiceProvider(sp))
-            .AddTransient<Agent.Actor>()
-            .AddTransient<User.Actor>());
+            .AddTransient<User.Actor>()
+            .AddTransient<AgentRegistry.Actor>()
+            .AddTransient<Agent.Actor>());
 
         var host = builder.Build();
         return host.RunAsync();

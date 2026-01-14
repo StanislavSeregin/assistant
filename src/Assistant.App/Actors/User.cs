@@ -3,7 +3,6 @@ using Proto.DependencyInjection;
 using Spectre.Console;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -50,7 +49,7 @@ public static class User
             });
 
             RegisterSubscriptions(context);
-            var pid = SpawnAgent(context);
+            var pid = SpawnAgentRegistry(context);
             await HandleAsk(context, pid);
         }
 
@@ -69,17 +68,17 @@ public static class User
             return Task.CompletedTask;
         }
 
-        private static PID SpawnAgent(IContext context)
+        private static PID SpawnAgentRegistry(IContext context)
         {
-            var props = context.System.DI().PropsFor<Agent.Actor>();
+            var props = context.System.DI().PropsFor<AgentRegistry.Actor>();
             var pid = context.Spawn(props);
-            var payload = new Agent.Init(AGENT_NAME, AGENT_INSTRUCTIONS);
+            var payload = new Agent.Metadata(AGENT_NAME, "Manager", AGENT_INSTRUCTIONS, IsMaster: true);
             var envelope = new MessageEnvelope(payload, context.Self);
             context.Send(pid, envelope);
             return pid;
         }
 
-        private async Task HandleAsk(IContext context, PID? pid)
+        private async Task HandleAsk(IContext context, PID pid)
         {
             await _streamingLock.WaitAsync();
             try
@@ -92,9 +91,9 @@ public static class User
                     return;
                 }
 
-                var payload = new Agent.Email(From: "User", To: default, "Request", Body: input);
+                var payload = new AgentRegistry.Message(From: "User", To: AGENT_NAME, input);
                 var envelope = new MessageEnvelope(payload, context.Self);
-                context.Send(pid ?? context.Children.First(), envelope);
+                context.Send(pid, envelope);
             }
             finally
             {
