@@ -33,6 +33,8 @@ public static class AgentRegistry
 
         private readonly Dictionary<string, AgentData> _agents = [];
 
+        private readonly List<(string From, string To)> _responseAwaters = [];
+
         public Task ReceiveAsync(IContext context)
         {
             return context.Message switch
@@ -40,7 +42,7 @@ public static class AgentRegistry
                 Agent.Metadata msg => CreateAgent(context, msg),
                 Ready msg => HandleReady(context, msg),
                 AgentsRequest => RespondAgents(context),
-                Message msg => BatchMessage(context, msg),
+                Message msg => RecieveMessage(context, msg),
                 _ => Task.CompletedTask
             };
         }
@@ -80,10 +82,11 @@ public static class AgentRegistry
             return Task.CompletedTask;
         }
 
-        private Task BatchMessage(IContext context, Message msg)
+        private Task RecieveMessage(IContext context, Message msg)
         {
             if (_agents.TryGetValue(msg.To, out var agent))
             {
+                TrackResponseAwater(msg.From, msg.To);
                 if (agent.IsReady)
                 {
                     agent.IsReady = false;
@@ -98,6 +101,14 @@ public static class AgentRegistry
             }
 
             return Task.CompletedTask;
+        }
+
+        private void TrackResponseAwater(string from, string to)
+        {
+            if (_responseAwaters.RemoveAll(item => item == (to, from)) is 0)
+            {
+                _responseAwaters.Add((from, to));
+            }
         }
 
         private Task RespondAgents(IContext context)

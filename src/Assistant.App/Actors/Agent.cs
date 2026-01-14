@@ -59,36 +59,46 @@ public static class Agent
             var instructions = $"""
             == Personal Info ==
             
-            Name: {msg.Name}
+            Name: {Metadata.Name}
             Description:
-            {msg.Description}
+            {Metadata.Description}
             
             == Personal Instructions ==
             
-            {msg.Instructions}
+            {Metadata.Instructions}
             
             == Communication Rules ==
             
             1. INCOMING MESSAGES:
-               - You receive messages from other participants
-               - Messages arrive in batches - this is normal and efficient
-               - Each message is independent, but analyze the batch for overall context
+            - You receive messages from other participants
+            - Messages arrive in batches - this is normal and efficient
+            - Each message is independent, but analyze the batch for overall context
             
             2. HOW TO ANALYZE:
-               - Look at the sender's name and message content
-               - Determine what each participant is writing about
-               - If one person sent multiple messages - combine their meaning
+            - Look at the sender's name and message content
+            - Determine what each participant is writing about
+            - If one person sent multiple messages - combine their meaning
             
             3. HOW TO RESPOND:
-               - Provide a separate response to each message
-               - Address each response to the specific participant
-               - Request additional details if needed
-               - Confirm when an issue is resolved
+            - Provide a separate response to each message
+            - Address each response to the specific participant
+            - Request additional details if needed
+            - Confirm when an issue is resolved
             
             4. EFFICIENCY:
-               - Write clearly and to the point
-               - One message = one complete thought
-               - Respect other participants' time
+            - Write clearly and to the point
+            - One message = one complete thought
+            - Respect other participants' time
+
+            5. YOU MUST UNDERSTAND THAT YOUR MESSAGES ARE NOT VISIBLE TO PARTICIPANTS, ALWAYS USE `{nameof(SendMessageTool)}`
+
+            == Cautions ==
+            - No meetings, only correspondence
+            - No scheduling
+            - Don't repeat yourself or quote each other without reason
+            - Less emotion
+            - Try to take into account the specific role of the other person in your correspondence
+            - Only relevant information
             """;
 
             if (Metadata.IsMaster)
@@ -126,21 +136,23 @@ public static class Agent
             }
 
             Agent = chatClientFactory.GetChatClient().CreateAIAgent(
-                name: msg.Name,
-                description: msg.Description,
+                name: Metadata.Name,
+                description: Metadata.Description,
                 instructions: instructions,
                 tools: Metadata.IsMaster
                     ? [AIFunctionFactory.Create(SendMessageTool), AIFunctionFactory.Create(GetParticipantsTool), AIFunctionFactory.Create(CreateNewParticipantTool)]
                     : [AIFunctionFactory.Create(SendMessageTool), AIFunctionFactory.Create(GetParticipantsTool)]);
 
             Thread = Agent.GetNewThread();
+            Ready();
+        }
 
-            if (Context.Parent is { } pid)
-            {
-                var payload = new AgentRegistry.Ready(msg.Name);
-                var envelope = new MessageEnvelope(payload, Context.Self);
-                Context.Send(pid, envelope);
-            }
+        private void Ready()
+        {
+            var pid = Context.Parent ?? throw new InvalidOperationException();
+            var payload = new AgentRegistry.Ready(Metadata.Name);
+            var envelope = new MessageEnvelope(payload, Context.Self);
+            Context.Send(pid, envelope);
         }
 
         private async Task HandleMessages(AgentRegistry.ReceivedMessages msg)
@@ -150,29 +162,43 @@ public static class Agent
             {m.Content}
             """));
 
-            var chatMessage = new Microsoft.Extensions.AI.ChatMessage()
+            await RunAgent(new Microsoft.Extensions.AI.ChatMessage()
             {
                 Role = ChatRole.Assistant,
                 Contents = [new TextContent(content)]
-            };
+            });
 
+            Ready();
+        }
+
+        private async Task RunAgent(Microsoft.Extensions.AI.ChatMessage chatMessage)
+        {
             var response = await Agent.RunAsync(chatMessage, Thread, cancellationToken: Context.CancellationToken);
             var log = new User.MessageLog(Metadata.Name, To: "SELF", $"{response.Text}");
             Context.System.EventStream.Publish(log);
         }
 
         [Description("Send message")]
-        private void SendMessageTool(
+        private async Task<string> SendMessageTool(
             [Description("Recipient")] string to,
             [Description("Message")] string content)
         {
-            if (Context.Parent is { } pid)
+            var pid = Context.Parent ?? throw new InvalidOperationException();
+            var participants = await GetParticipantsTool();
+            if (participants.Any(p => p.Name == to))
             {
-                var log = new User.MessageLog(Metadata.Name, to, content);
-                Context.System.EventStream.Publish(log);
                 var payload = new AgentRegistry.Message(Metadata.Name, to, content);
                 var envelope = new MessageEnvelope(payload, Context.Self);
                 Context.Send(pid, envelope);
+
+                var log = new User.MessageLog(Metadata.Name, to, content);
+                Context.System.EventStream.Publish(log);
+
+                return "Sent";
+            }
+            else
+            {
+                return $"'{to}' recipient not found. Use `{nameof(GetParticipantsTool)}` for getting participants.";
             }
         }
 
@@ -183,7 +209,6 @@ public static class Agent
             {
                 var request = new AgentRegistry.AgentsRequest();
                 var agentsResponse = await Context.RequestAsync<AgentRegistry.AgentsResponse>(pid, request, Context.CancellationToken);
-
                 var participants = agentsResponse.Agents
                     .Where(a => a.Name != Metadata.Name)
                     .Select(a => new Participants(a.Name, a.Description));
