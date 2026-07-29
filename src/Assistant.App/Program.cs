@@ -22,16 +22,17 @@ public class Program
             }
         });
 
-        builder.ConfigureLogging(b => b.ClearProviders());
-        builder.ConfigureServices((context, services) => services
-            .Configure<Settings>(context.Configuration.GetSection("Settings"))
-            .AddSingleton<ChatClientFactory>()
-            .AddSingleton<AgentConcurrencyLimiter>()
-            .AddHostedService<BootstrapHostedService>()
-            .AddSingleton(sp => new ActorSystem().WithServiceProvider(sp))
-            .AddTransient<User.Actor>()
-            .AddTransient<AgentRegistry.Actor>()
-            .AddTransient<Agent.Actor>());
+        builder
+            .ConfigureLogging(b => b.ClearProviders())
+            .ConfigureServices((context, services) => services
+                .Configure<Settings>(context.Configuration.GetSection("Settings"))
+                .AddSingleton<ChatClientFactory>()
+                .AddSingleton<AgentConcurrencyLimiter>()
+                .AddSingleton(sp => new ActorSystem().WithServiceProvider(sp))
+                .AddTransient<User.Actor>()
+                .AddTransient<AgentRegistry.Actor>()
+                .AddTransient<Agent.Actor>()
+                .AddHostedService<BootstrapHostedService>());
 
         var host = builder.Build();
         return host.RunAsync();

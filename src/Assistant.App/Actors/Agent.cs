@@ -57,82 +57,24 @@ public static class Agent
             Metadata = msg;
 
             var instructions = $"""
-            == Personal Info ==
-            
-            Name: {Metadata.Name}
-            Description:
-            {Metadata.Description}
-            
-            == Personal Instructions ==
-            
-            {Metadata.Instructions}
-            
-            == Communication Rules ==
-            
-            1. INCOMING MESSAGES:
-            - You receive messages from other participants
-            - Messages arrive in batches - this is normal and efficient
-            - Each message is independent, but analyze the batch for overall context
-            
-            2. HOW TO ANALYZE:
-            - Look at the sender's name and message content
-            - Determine what each participant is writing about
-            - If one person sent multiple messages - combine their meaning
-            
-            3. HOW TO RESPOND:
-            - Provide a separate response to each message
-            - Address each response to the specific participant
-            - Request additional details if needed
-            - Confirm when an issue is resolved
-            
-            4. EFFICIENCY:
-            - Write clearly and to the point
-            - One message = one complete thought
-            - Respect other participants' time
+                You are {Metadata.Name}. {Metadata.Description}
 
-            5. YOU MUST UNDERSTAND THAT YOUR MESSAGES ARE NOT VISIBLE TO PARTICIPANTS, ALWAYS USE `{nameof(SendMessageTool)}`
+                {Metadata.Instructions}
 
-            == Cautions ==
-            - No meetings, only correspondence
-            - No scheduling
-            - Don't repeat yourself or quote each other without reason
-            - Less emotion
-            - Try to take into account the specific role of the other person in your correspondence
-            - Only relevant information
-            """;
+                Rules:
+                - Use {nameof(SendMessageTool)} to talk to others. Plain text output is internal only.
+                - Use {nameof(GetParticipantsTool)} before messaging someone new.
+                - Be brief and practical.
+                """;
 
             if (Metadata.IsMaster)
             {
-                instructions = $"""
-                {instructions}
+                instructions += $"""
 
-                YOU ARE RESPONSIBLE FOR TASK COMPLETION AND COORDINATION
-
-                YOUR CORE RESPONSIBILITIES:
-                - Ensure assigned goals are achieved
-                - Organize effective collaborative work
-                - Monitor progress and quality
-                - Report to the task assigner (visible in your participants list)
-
-                YOUR UNIQUE CAPABILITIES:
-                1. You can bring in new participants with needed specializations
-                2. You can report progress and ask questions directly to the task assigner
-                3. You receive final results from all participants
-
-                HOW YOU WORK:
-                1. Analyze what specializations are needed to complete tasks
-                2. Bring in participants with required skills
-                3. Assign specific tasks to specific people
-                4. Collect results and report on progress
-                5. Ask for clarifications if anything is unclear about the original task
-
-                YOUR PRINCIPLES:
-                - Clear task assignment
-                - Regular oversight without micromanagement
-                - Willingness to help and explain
-                - Focus on results, not just process
-                - Proactive communication about progress and challenges
-                """;
+                    You are the coordinator. User is the task assigner.
+                    Use {nameof(CreateNewParticipantTool)} to add specialists when needed.
+                    Talk to User directly for clarifications and status updates.
+                    """;
             }
 
             Agent = chatClientFactory.GetChatClient().AsAIAgent(
@@ -144,6 +86,7 @@ public static class Agent
                     : [AIFunctionFactory.Create(SendMessageTool), AIFunctionFactory.Create(GetParticipantsTool)]);
 
             Session = await Agent.CreateSessionAsync(Context.CancellationToken);
+            User.PublishSystem(Context, $"Agent '{Metadata.Name}' initialized");
             Ready();
         }
 
@@ -157,27 +100,62 @@ public static class Agent
 
         private async Task HandleMessages(AgentRegistry.ReceivedMessages msg)
         {
-            var content = string.Join(Environment.NewLine, msg.Messages.Select(m => $"""
-            Got new message from '{m.From}':
-            {m.Content}
-            """));
+            var senders = string.Join(", ", msg.Messages.Select(m => m.From).Distinct());
+            User.PublishSystem(Context, $"Agent '{Metadata.Name}' received {msg.Messages.Length} message(s) from {senders}");
+
+            var content = string.Join(Environment.NewLine, msg.Messages.Select(m => $"[{m.From}]: {m.Content}"));
 
             await RunAgent(new Microsoft.Extensions.AI.ChatMessage()
             {
-                Role = ChatRole.Assistant,
+                Role = ChatRole.User,
                 Contents = [new TextContent(content)]
             });
 
             Ready();
         }
 
-        private async Task RunAgent(Microsoft.Extensions.AI.ChatMessage chatMessage)
+        private Task RunAgent(Microsoft.Extensions.AI.ChatMessage chatMessage)
         {
-            var response = await concurrencyLimiter.RunAsync(
-                () => Agent.RunAsync(chatMessage, Session, cancellationToken: Context.CancellationToken),
-                Context.CancellationToken);
-            var log = new User.MessageLog(Metadata.Name, To: "SELF", $"{response.Text}");
-            Context.System.EventStream.Publish(log);
+            return concurrencyLimiter.RunAsync(async () =>
+            {
+                User.PublishSystem(Context, $"Agent '{Metadata.Name}' LLM run started");
+                var streamId = Guid.NewGuid();
+                Context.System.EventStream.Publish(new User.MessageLog(
+                    Metadata.Name,
+                    To: null,
+                    Content: null,
+                    StreamId: streamId,
+                    IsStreamStart: true,
+                    IsThinking: true));
+
+                await foreach (var update in Agent.RunStreamingAsync(
+                    chatMessage,
+                    Session,
+                    cancellationToken: Context.CancellationToken))
+                {
+                    if (string.IsNullOrEmpty(update.Text))
+                    {
+                        continue;
+                    }
+
+                    Context.System.EventStream.Publish(new User.MessageLog(
+                        Metadata.Name,
+                        To: null,
+                        Content: update.Text,
+                        StreamId: streamId,
+                        IsThinking: true));
+                }
+
+                Context.System.EventStream.Publish(new User.MessageLog(
+                    Metadata.Name,
+                    To: null,
+                    Content: null,
+                    StreamId: streamId,
+                    IsStreamComplete: true,
+                    IsThinking: true));
+
+                User.PublishSystem(Context, $"Agent '{Metadata.Name}' LLM run completed");
+            }, Context.CancellationToken);
         }
 
         [Description("Send message")]
@@ -189,19 +167,16 @@ public static class Agent
             var participants = await GetParticipantsTool();
             if (participants.Any(p => p.Name == to))
             {
+                User.PublishSystem(Context, $"{Metadata.Name} -> {to}: {content}");
                 var payload = new AgentRegistry.Message(Metadata.Name, to, content);
                 var envelope = new MessageEnvelope(payload, Context.Self);
                 Context.Send(pid, envelope);
 
-                var log = new User.MessageLog(Metadata.Name, to, content);
-                Context.System.EventStream.Publish(log);
-
                 return "Sent";
             }
-            else
-            {
-                return $"'{to}' recipient not found. Use `{nameof(GetParticipantsTool)}` for getting participants.";
-            }
+
+            User.PublishSystem(Context, $"{Metadata.Name} failed to send to '{to}': recipient not found");
+            return $"'{to}' recipient not found. Use `{nameof(GetParticipantsTool)}` for getting participants.";
         }
 
         [Description("Get participants for messaging")]
@@ -213,21 +188,19 @@ public static class Agent
                 var agentsResponse = await Context.RequestAsync<AgentRegistry.AgentsResponse>(pid, request, Context.CancellationToken);
                 var participants = agentsResponse.Agents
                     .Where(a => a.Name != Metadata.Name)
-                    .Select(a => new Participants(a.Name, a.Description));
+                    .Select(a => new Participants(a.Name, a.Description))
+                    .ToList();
 
                 if (Metadata.IsMaster)
                 {
-                    participants = [new Participants("User", "Director"), .. participants];
+                    participants.Insert(0, new Participants("User", "Director"));
                 }
 
-                return [.. agentsResponse.Agents
-                    .Where(a => a.Name != Metadata.Name)
-                    .Select(a => new Participants(a.Name, a.Description))];
+                User.PublishSystem(Context, $"Agent '{Metadata.Name}' participants: {string.Join(", ", participants.Select(p => p.Name))}");
+                return [.. participants];
             }
-            else
-            {
-                return [];
-            }
+
+            return [];
         }
 
         [Description("Bring in a new participant for collaborative work")]
@@ -238,6 +211,7 @@ public static class Agent
         {
             if (Context.Parent is { } pid)
             {
+                User.PublishSystem(Context, $"Agent '{Metadata.Name}' requested new participant '{name}'");
                 var payload = new Metadata(name, description, instructions, IsMaster: false);
                 var envelope = new MessageEnvelope(payload, Context.Self);
                 Context.Send(pid, envelope);

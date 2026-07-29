@@ -9,6 +9,19 @@ public class AgentConcurrencyLimiter(IOptions<Settings> options)
 {
     private readonly SemaphoreSlim _semaphore = new(Math.Max(1, options.Value.MaxConcurrentAgentRuns));
 
+    public async Task RunAsync(Func<Task> action, CancellationToken cancellationToken)
+    {
+        await _semaphore.WaitAsync(cancellationToken);
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
     public async Task<T> RunAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken)
     {
         await _semaphore.WaitAsync(cancellationToken);
