@@ -29,7 +29,7 @@ public static class Agent
             set;
         }
 
-        private AgentThread Thread
+        private AgentSession Session
         {
             get => field ?? throw new InvalidOperationException();
             set;
@@ -135,7 +135,7 @@ public static class Agent
                 """;
             }
 
-            Agent = chatClientFactory.GetChatClient().CreateAIAgent(
+            Agent = chatClientFactory.GetChatClient().AsAIAgent(
                 name: Metadata.Name,
                 description: Metadata.Description,
                 instructions: instructions,
@@ -143,7 +143,7 @@ public static class Agent
                     ? [AIFunctionFactory.Create(SendMessageTool), AIFunctionFactory.Create(GetParticipantsTool), AIFunctionFactory.Create(CreateNewParticipantTool)]
                     : [AIFunctionFactory.Create(SendMessageTool), AIFunctionFactory.Create(GetParticipantsTool)]);
 
-            Thread = Agent.GetNewThread();
+            Session = await Agent.CreateSessionAsync(Context.CancellationToken);
             Ready();
         }
 
@@ -173,7 +173,7 @@ public static class Agent
 
         private async Task RunAgent(Microsoft.Extensions.AI.ChatMessage chatMessage)
         {
-            var response = await Agent.RunAsync(chatMessage, Thread, cancellationToken: Context.CancellationToken);
+            var response = await Agent.RunAsync(chatMessage, Session, cancellationToken: Context.CancellationToken);
             var log = new User.MessageLog(Metadata.Name, To: "SELF", $"{response.Text}");
             Context.System.EventStream.Publish(log);
         }
