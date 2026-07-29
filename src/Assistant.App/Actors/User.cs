@@ -23,8 +23,7 @@ public static class User
         bool IsToolCall = false,
         string? ToolName = null,
         bool IsForUser = false,
-        long? InputTokens = null,
-        long? ContextWindowTokens = null);
+        long? InputTokens = null);
 
     public static void PublishToolCall(IContext context, string agent, string toolName, params (string Key, string? Value)[] args)
     {
@@ -182,10 +181,10 @@ public static class User
         private static string FormatFooter(DateTime endTime, TimeSpan duration, MessageLog msg)
         {
             var timing = $"took {duration.TotalSeconds:F1}s";
-            var usage = UsageFormatter.FormatFill(msg.InputTokens, msg.ContextWindowTokens);
+            var usage = UsageFormatter.Format(msg.InputTokens);
             return string.IsNullOrEmpty(usage)
                 ? $"[grey][[{endTime:HH:mm:ss}]] ({timing})[/]"
-                : $"[grey][[{endTime:HH:mm:ss}]] ({timing}, {usage})[/]";
+                : $"[grey][[{endTime:HH:mm:ss}]] ({timing}. {usage})[/]";
         }
 
         private async Task RenderLog(MessageLog msg)

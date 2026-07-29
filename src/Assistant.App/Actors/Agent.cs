@@ -16,8 +16,7 @@ public static class Agent
 
     public class Actor(
         ChatClientFactory chatClientFactory,
-        AgentConcurrencyLimiter concurrencyLimiter,
-        ModelContextService modelContextService) : IActor
+        AgentConcurrencyLimiter concurrencyLimiter) : IActor
     {
         private record Participants(string Name, string Description);
 
@@ -150,7 +149,6 @@ public static class Agent
                 }
 
                 var usage = updates.ToAgentResponse().Usage;
-                var contextWindow = await modelContextService.GetContextWindowTokensAsync(Context.CancellationToken);
                 Context.System.EventStream.Publish(new User.MessageLog(
                     Metadata.Name,
                     To: null,
@@ -158,8 +156,7 @@ public static class Agent
                     StreamId: streamId,
                     IsStreamComplete: true,
                     IsThinking: true,
-                    InputTokens: usage?.InputTokenCount,
-                    ContextWindowTokens: contextWindow));
+                    InputTokens: usage?.InputTokenCount));
             }, Context.CancellationToken);
         }
 

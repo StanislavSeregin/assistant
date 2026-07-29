@@ -2,16 +2,11 @@ namespace Assistant.App;
 
 public static class UsageFormatter
 {
-    public static string? FormatFill(long? inputTokens, long? contextWindowTokens)
+    public static string? Format(long? inputTokens)
     {
         if (inputTokens is null)
         {
             return null;
-        }
-
-        if (contextWindowTokens is > 0)
-        {
-            return $"ctx {FormatK(inputTokens.Value)}/{FormatK(contextWindowTokens.Value)}";
         }
 
         return $"ctx {FormatK(inputTokens.Value)}";
