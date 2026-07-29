@@ -28,6 +28,7 @@ public class Program
                 .Configure<Settings>(context.Configuration.GetSection("Settings"))
                 .AddSingleton<ChatClientFactory>()
                 .AddSingleton<AgentConcurrencyLimiter>()
+                .AddSingleton<ModelContextService>()
                 .AddSingleton(sp => new ActorSystem().WithServiceProvider(sp))
                 .AddTransient<User.Actor>()
                 .AddTransient<AgentRegistry.Actor>()

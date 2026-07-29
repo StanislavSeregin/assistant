@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using OpenAI.Chat;
 using Proto;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Threading.Tasks;
@@ -13,7 +14,10 @@ public static class Agent
 {
     public record Metadata(string Name, string Description, string Instructions, bool IsMaster);
 
-    public class Actor(ChatClientFactory chatClientFactory, AgentConcurrencyLimiter concurrencyLimiter) : IActor
+    public class Actor(
+        ChatClientFactory chatClientFactory,
+        AgentConcurrencyLimiter concurrencyLimiter,
+        ModelContextService modelContextService) : IActor
     {
         private record Participants(string Name, string Description);
 
@@ -62,7 +66,9 @@ public static class Agent
                 {Metadata.Instructions}
 
                 Rules:
-                - Use {nameof(SendMessageTool)} to talk to others. Plain text output is internal only.
+                - Use {nameof(SendMessageTool)} for ALL messages to others, including User.
+                - Free text is internal thinking only — the user never sees it.
+                - After you finish tool work, always deliver the final answer to User with {nameof(SendMessageTool)}.
                 - Use {nameof(GetParticipantsTool)} before messaging someone new.
                 - Be brief and practical.
                 """;
@@ -73,7 +79,7 @@ public static class Agent
 
                     You are the coordinator. User is the task assigner.
                     Use {nameof(CreateNewParticipantTool)} to add specialists when needed.
-                    Talk to User directly for clarifications and status updates.
+                    Never summarize results only in thinking — send them to User via {nameof(SendMessageTool)}.
                     """;
             }
 
@@ -86,7 +92,6 @@ public static class Agent
                     : [AIFunctionFactory.Create(SendMessageTool), AIFunctionFactory.Create(GetParticipantsTool)]);
 
             Session = await Agent.CreateSessionAsync(Context.CancellationToken);
-            User.PublishSystem(Context, $"Agent '{Metadata.Name}' initialized");
             Ready();
         }
 
@@ -100,9 +105,6 @@ public static class Agent
 
         private async Task HandleMessages(AgentRegistry.ReceivedMessages msg)
         {
-            var senders = string.Join(", ", msg.Messages.Select(m => m.From).Distinct());
-            User.PublishSystem(Context, $"Agent '{Metadata.Name}' received {msg.Messages.Length} message(s) from {senders}");
-
             var content = string.Join(Environment.NewLine, msg.Messages.Select(m => $"[{m.From}]: {m.Content}"));
 
             await RunAgent(new Microsoft.Extensions.AI.ChatMessage()
@@ -118,7 +120,6 @@ public static class Agent
         {
             return concurrencyLimiter.RunAsync(async () =>
             {
-                User.PublishSystem(Context, $"Agent '{Metadata.Name}' LLM run started");
                 var streamId = Guid.NewGuid();
                 Context.System.EventStream.Publish(new User.MessageLog(
                     Metadata.Name,
@@ -128,11 +129,13 @@ public static class Agent
                     IsStreamStart: true,
                     IsThinking: true));
 
+                var updates = new List<AgentResponseUpdate>();
                 await foreach (var update in Agent.RunStreamingAsync(
                     chatMessage,
                     Session,
                     cancellationToken: Context.CancellationToken))
                 {
+                    updates.Add(update);
                     if (string.IsNullOrEmpty(update.Text))
                     {
                         continue;
@@ -146,15 +149,17 @@ public static class Agent
                         IsThinking: true));
                 }
 
+                var usage = updates.ToAgentResponse().Usage;
+                var contextWindow = await modelContextService.GetContextWindowTokensAsync(Context.CancellationToken);
                 Context.System.EventStream.Publish(new User.MessageLog(
                     Metadata.Name,
                     To: null,
                     Content: null,
                     StreamId: streamId,
                     IsStreamComplete: true,
-                    IsThinking: true));
-
-                User.PublishSystem(Context, $"Agent '{Metadata.Name}' LLM run completed");
+                    IsThinking: true,
+                    InputTokens: usage?.InputTokenCount,
+                    ContextWindowTokens: contextWindow));
             }, Context.CancellationToken);
         }
 
@@ -164,10 +169,15 @@ public static class Agent
             [Description("Message")] string content)
         {
             var pid = Context.Parent ?? throw new InvalidOperationException();
-            var participants = await GetParticipantsTool();
+            var participants = await GetParticipantsInternal();
             if (participants.Any(p => p.Name == to))
             {
-                User.PublishSystem(Context, $"{Metadata.Name} -> {to}: {content}");
+                Context.System.EventStream.Publish(new User.MessageLog(
+                    Metadata.Name,
+                    To: to,
+                    Content: content,
+                    IsForUser: to == "User"));
+
                 var payload = new AgentRegistry.Message(Metadata.Name, to, content);
                 var envelope = new MessageEnvelope(payload, Context.Self);
                 Context.Send(pid, envelope);
@@ -175,12 +185,14 @@ public static class Agent
                 return "Sent";
             }
 
-            User.PublishSystem(Context, $"{Metadata.Name} failed to send to '{to}': recipient not found");
             return $"'{to}' recipient not found. Use `{nameof(GetParticipantsTool)}` for getting participants.";
         }
 
         [Description("Get participants for messaging")]
-        private async Task<Participants[]> GetParticipantsTool()
+        private async Task<Participants[]> GetParticipantsTool() =>
+            await GetParticipantsInternal();
+
+        private async Task<Participants[]> GetParticipantsInternal()
         {
             if (Context.Parent is { } pid)
             {
@@ -196,7 +208,6 @@ public static class Agent
                     participants.Insert(0, new Participants("User", "Director"));
                 }
 
-                User.PublishSystem(Context, $"Agent '{Metadata.Name}' participants: {string.Join(", ", participants.Select(p => p.Name))}");
                 return [.. participants];
             }
 
@@ -211,7 +222,11 @@ public static class Agent
         {
             if (Context.Parent is { } pid)
             {
-                User.PublishSystem(Context, $"Agent '{Metadata.Name}' requested new participant '{name}'");
+                User.PublishToolCall(Context, Metadata.Name, nameof(CreateNewParticipantTool),
+                    ("name", name),
+                    ("description", description),
+                    ("instructions", instructions));
+
                 var payload = new Metadata(name, description, instructions, IsMaster: false);
                 var envelope = new MessageEnvelope(payload, Context.Self);
                 Context.Send(pid, envelope);

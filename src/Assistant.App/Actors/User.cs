@@ -1,4 +1,5 @@
-﻿using Proto;
+﻿using System.Linq;
+using Proto;
 using Proto.DependencyInjection;
 using Spectre.Console;
 using System;
@@ -18,11 +19,26 @@ public static class User
         Guid? StreamId = null,
         bool IsStreamStart = false,
         bool IsStreamComplete = false,
-        bool IsSystem = false,
-        bool IsThinking = false);
+        bool IsThinking = false,
+        bool IsToolCall = false,
+        string? ToolName = null,
+        bool IsForUser = false,
+        long? InputTokens = null,
+        long? ContextWindowTokens = null);
 
-    public static void PublishSystem(IContext context, string content) =>
-        context.System.EventStream.Publish(new MessageLog("System", null, content, IsSystem: true));
+    public static void PublishToolCall(IContext context, string agent, string toolName, params (string Key, string? Value)[] args)
+    {
+        var payload = string.Join(
+            Environment.NewLine,
+            args.Select(arg => $"{arg.Key}: {arg.Value ?? string.Empty}"));
+
+        context.System.EventStream.Publish(new MessageLog(
+            agent,
+            To: null,
+            Content: payload,
+            IsToolCall: true,
+            ToolName: toolName));
+    }
 
     public record PromptInput;
 
@@ -38,6 +54,8 @@ public static class User
         private readonly SemaphoreSlim _streamingLock = new(1);
 
         private readonly Dictionary<Guid, DateTime> _activeStreams = [];
+
+        private readonly Queue<MessageLog> _deferredMessages = [];
 
         private readonly List<EventStreamSubscription<object>> _subscriptions = [];
 
@@ -87,13 +105,11 @@ public static class User
 
         private static PID SpawnAgentRegistry(IContext context)
         {
-            PublishSystem(context, "Starting agent registry");
             var props = context.System.DI().PropsFor<AgentRegistry.Actor>();
             var pid = context.Spawn(props);
             var payload = new Agent.Metadata(AGENT_NAME, "Manager", AGENT_INSTRUCTIONS, IsMaster: true);
             var envelope = new MessageEnvelope(payload, context.Self);
             context.Send(pid, envelope);
-            PublishSystem(context, $"Registered master agent '{AGENT_NAME}'");
             return pid;
         }
 
@@ -110,7 +126,6 @@ public static class User
                     return;
                 }
 
-                PublishSystem(context, $"User -> {AGENT_NAME}: {input}");
                 var payload = new AgentRegistry.Message(From: "User", To: AGENT_NAME, input);
                 var envelope = new MessageEnvelope(payload, context.Self);
                 context.Send(pid, envelope);
@@ -123,18 +138,54 @@ public static class User
 
         private static string FormatHeader(MessageLog msg, DateTime time)
         {
+            if (msg.IsToolCall)
+            {
+                var agent = msg.From ?? "Unknown";
+                var tool = msg.ToolName ?? "unknown";
+                return $"[grey]{agent} · {tool}[/] [grey][[{time:HH:mm:ss}]][/]";
+            }
+
             if (msg.IsThinking)
             {
                 var name = msg.From ?? "Unknown";
                 return $"[grey]{name} · thinking[/] [grey][[{time:HH:mm:ss}]][/]";
             }
 
-            var from = msg.From ?? "Unknown";
+            if (msg.IsForUser || msg.To == "User")
+            {
+                var from = msg.From ?? "Unknown";
+                return $"[bold green]{from} -> You[/] [grey][[{time:HH:mm:ss}]][/]";
+            }
+
+            var fromDefault = msg.From ?? "Unknown";
             var to = !string.IsNullOrEmpty(msg.To)
                 ? $" -> {msg.To}"
                 : string.Empty;
 
-            return $"[cyan]{from}{to}[/] [grey][[{time:HH:mm:ss}]][/]";
+            return $"[cyan]{fromDefault}{to}[/] [grey][[{time:HH:mm:ss}]][/]";
+        }
+
+        private static void WriteToolCall(MessageLog msg)
+        {
+            var time = DateTime.Now;
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Rule(FormatHeader(msg, time)).LeftJustified());
+            if (!string.IsNullOrEmpty(msg.Content))
+            {
+                foreach (var line in msg.Content.ReplaceLineEndings("\n").Split('\n'))
+                {
+                    AnsiConsole.MarkupLine($"[grey]{Markup.Escape(line)}[/]");
+                }
+            }
+        }
+
+        private static string FormatFooter(DateTime endTime, TimeSpan duration, MessageLog msg)
+        {
+            var timing = $"took {duration.TotalSeconds:F1}s";
+            var usage = UsageFormatter.FormatFill(msg.InputTokens, msg.ContextWindowTokens);
+            return string.IsNullOrEmpty(usage)
+                ? $"[grey][[{endTime:HH:mm:ss}]] ({timing})[/]"
+                : $"[grey][[{endTime:HH:mm:ss}]] ({timing}, {usage})[/]";
         }
 
         private async Task RenderLog(MessageLog msg)
@@ -142,13 +193,6 @@ public static class User
             await _streamingLock.WaitAsync();
             try
             {
-                if (msg.IsSystem)
-                {
-                    AnsiConsole.MarkupLine(
-                        $"[grey][[{DateTime.Now:HH:mm:ss}]] [system] {Markup.Escape(msg.Content ?? string.Empty)}[/]");
-                    return;
-                }
-
                 if (msg.StreamId is { } streamId)
                 {
                     if (msg.IsStreamStart)
@@ -170,9 +214,10 @@ public static class User
                             var duration = endTime - startTime;
                             AnsiConsole.Reset();
                             AnsiConsole.WriteLine();
-                            AnsiConsole.Write(new Rule($"[grey][[{endTime:HH:mm:ss}]] (took {duration.TotalSeconds:F1}s)[/]").RightJustified());
+                            AnsiConsole.Write(new Rule(FormatFooter(endTime, duration, msg)).RightJustified());
                         }
 
+                        FlushDeferredMessages();
                         return;
                     }
 
@@ -184,22 +229,59 @@ public static class User
                     return;
                 }
 
-                var staticStartTime = DateTime.Now;
+                // Deferred until the active thinking stream finishes.
+                if (_activeStreams.Count > 0)
+                {
+                    _deferredMessages.Enqueue(msg);
+                    return;
+                }
 
-                AnsiConsole.WriteLine();
-                AnsiConsole.Write(new Rule(FormatHeader(msg, staticStartTime)).LeftJustified());
-                AnsiConsole.Markup(msg.IsThinking
-                    ? $"[grey italic]{Markup.Escape(msg.Content ?? "[EMPTY]")}[/]"
-                    : $"[yellow]{Markup.Escape(msg.Content ?? "[EMPTY]")}[/]");
-                var staticEndTime = DateTime.Now;
-                var staticDuration = staticEndTime - staticStartTime;
-                AnsiConsole.WriteLine();
-                AnsiConsole.Write(new Rule($"[grey][[{staticEndTime:HH:mm:ss}]] (took {staticDuration.TotalSeconds:F1}s)[/]").RightJustified());
+                if (msg.IsToolCall)
+                {
+                    WriteToolCall(msg);
+                    return;
+                }
+
+                WriteStaticMessage(msg);
             }
             finally
             {
                 _streamingLock.Release();
             }
+        }
+
+        private void FlushDeferredMessages()
+        {
+            while (_deferredMessages.Count > 0 && _activeStreams.Count == 0)
+            {
+                var msg = _deferredMessages.Dequeue();
+                if (msg.IsToolCall)
+                {
+                    WriteToolCall(msg);
+                }
+                else
+                {
+                    WriteStaticMessage(msg);
+                }
+            }
+        }
+
+        private static void WriteStaticMessage(MessageLog msg)
+        {
+            var staticStartTime = DateTime.Now;
+
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Rule(FormatHeader(msg, staticStartTime)).LeftJustified());
+            var contentStyle = msg.IsForUser || msg.To == "User"
+                ? "[bold white]"
+                : msg.IsThinking
+                    ? "[grey italic]"
+                    : "[yellow]";
+            AnsiConsole.Markup($"{contentStyle}{Markup.Escape(msg.Content ?? "[EMPTY]")}[/]");
+            var staticEndTime = DateTime.Now;
+            var staticDuration = staticEndTime - staticStartTime;
+            AnsiConsole.WriteLine();
+            AnsiConsole.Write(new Rule(FormatFooter(staticEndTime, staticDuration, msg)).RightJustified());
         }
     }
 }

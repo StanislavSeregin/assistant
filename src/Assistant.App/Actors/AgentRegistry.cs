@@ -58,7 +58,6 @@ public static class AgentRegistry
                 var props = context.System.DI().PropsFor<Agent.Actor>();
                 var pid = context.Spawn(props);
                 _agents.Add(msg.Name, new AgentData(pid, msg));
-                User.PublishSystem(context, $"Spawning agent '{msg.Name}' (master={msg.IsMaster})");
                 var envelope = new MessageEnvelope(msg, context.Self);
                 context.Send(pid, envelope);
             }
@@ -73,7 +72,6 @@ public static class AgentRegistry
                 if (agent.Messages.Count > 0)
                 {
                     agent.IsReady = false;
-                    User.PublishSystem(context, $"Agent '{msg.Name}' processing {agent.Messages.Count} queued message(s)");
                     var payload = new ReceivedMessages([.. agent.Messages.Select(item => (item.From, item.Content))]);
                     var envelope = new MessageEnvelope(payload, context.Self);
                     context.Send(agent.PID, envelope);
@@ -82,7 +80,6 @@ public static class AgentRegistry
                 else
                 {
                     agent.IsReady = true;
-                    User.PublishSystem(context, $"Agent '{msg.Name}' ready");
                     TryPromptUser(context);
                 }
             }
@@ -97,7 +94,6 @@ public static class AgentRegistry
                 && _agents.Values.All(a => a.IsReady))
             {
                 _userAwaitingPrompt = false;
-                User.PublishSystem(context, "Prompting user for input");
                 context.Send(userPid, new User.PromptInput());
             }
         }
@@ -106,7 +102,6 @@ public static class AgentRegistry
         {
             if (msg.To == "User")
             {
-                User.PublishSystem(context, $"Delivered {msg.From} -> User");
                 return Task.CompletedTask;
             }
 
@@ -122,7 +117,6 @@ public static class AgentRegistry
                 if (agent.IsReady)
                 {
                     agent.IsReady = false;
-                    User.PublishSystem(context, $"Delivering {msg.From} -> {msg.To}");
                     var payload = new ReceivedMessages([(msg.From, msg.Content)]);
                     var envelope = new MessageEnvelope(payload, context.Self);
                     context.Send(agent.PID, envelope);
@@ -130,12 +124,7 @@ public static class AgentRegistry
                 else
                 {
                     agent.Messages.Add(msg);
-                    User.PublishSystem(context, $"Queued {msg.From} -> {msg.To} (agent busy, queue={agent.Messages.Count})");
                 }
-            }
-            else
-            {
-                User.PublishSystem(context, $"Unknown recipient '{msg.To}'");
             }
 
             return Task.CompletedTask;
