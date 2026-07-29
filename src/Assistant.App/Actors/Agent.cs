@@ -13,7 +13,7 @@ public static class Agent
 {
     public record Metadata(string Name, string Description, string Instructions, bool IsMaster);
 
-    public class Actor(ChatClientFactory chatClientFactory) : IActor
+    public class Actor(ChatClientFactory chatClientFactory, AgentConcurrencyLimiter concurrencyLimiter) : IActor
     {
         private record Participants(string Name, string Description);
 
@@ -173,7 +173,9 @@ public static class Agent
 
         private async Task RunAgent(Microsoft.Extensions.AI.ChatMessage chatMessage)
         {
-            var response = await Agent.RunAsync(chatMessage, Session, cancellationToken: Context.CancellationToken);
+            var response = await concurrencyLimiter.RunAsync(
+                () => Agent.RunAsync(chatMessage, Session, cancellationToken: Context.CancellationToken),
+                Context.CancellationToken);
             var log = new User.MessageLog(Metadata.Name, To: "SELF", $"{response.Text}");
             Context.System.EventStream.Publish(log);
         }

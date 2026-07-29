@@ -26,6 +26,7 @@ public class Program
         builder.ConfigureServices((context, services) => services
             .Configure<Settings>(context.Configuration.GetSection("Settings"))
             .AddSingleton<ChatClientFactory>()
+            .AddSingleton<AgentConcurrencyLimiter>()
             .AddHostedService<BootstrapHostedService>()
             .AddSingleton(sp => new ActorSystem().WithServiceProvider(sp))
             .AddTransient<User.Actor>()
