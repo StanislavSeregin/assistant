@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Options;
+﻿using Microsoft.Agents.AI;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
 using System;
@@ -12,13 +14,27 @@ public class ChatClientFactory(IOptions<Settings> options)
 
     public ChatClient GetChatClient()
     {
-        var apiKeyCredential = new ApiKeyCredential(_settings.ApiKey);
-        var openAIClientOptions = new OpenAIClientOptions()
+        var credential = new ApiKeyCredential(_settings.ApiKey);
+        var clientOptions = new OpenAIClientOptions
         {
-            Endpoint = new Uri(_settings.Endpoint)
+            Endpoint = new Uri(_settings.Endpoint),
+            NetworkTimeout = _settings.NetworkTimeout
         };
 
-        var openAIClient = new OpenAIClient(apiKeyCredential, openAIClientOptions);
-        return openAIClient.GetChatClient(_settings.ModelName);
+        return new OpenAIClient(credential, clientOptions).GetChatClient(_settings.ModelName);
     }
+
+    public ChatClientAgentRunOptions CreateRunOptions() =>
+        new()
+        {
+            ChatOptions = new ChatOptions
+            {
+                RawRepresentationFactory = _ =>
+                {
+                    var completionOptions = new ChatCompletionOptions();
+                    completionOptions.Patch.Set("$.stream_options.include_usage"u8, true);
+                    return completionOptions;
+                }
+            }
+        };
 }

@@ -5,6 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <UserSecretsId>d9e2a160-babc-4c75-a2be-af79c8824e67</UserSecretsId>
+    <NoWarn>$(NoWarn);SCME0001</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

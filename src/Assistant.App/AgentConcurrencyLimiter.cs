@@ -34,4 +34,20 @@ public class AgentConcurrencyLimiter(IOptions<Settings> options)
             _semaphore.Release();
         }
     }
+
+    /// <summary>
+    /// Releases the LLM slot while awaiting another agent (needed when MaxConcurrentAgentRuns = 1).
+    /// </summary>
+    public async Task<T> WhileReleasedAsync<T>(Func<Task<T>> action)
+    {
+        _semaphore.Release();
+        try
+        {
+            return await action();
+        }
+        finally
+        {
+            await _semaphore.WaitAsync(CancellationToken.None);
+        }
+    }
 }
