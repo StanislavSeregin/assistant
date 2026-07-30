@@ -1,4 +1,8 @@
-/.env
+.env
 .vs/
 bin/
 obj/
+tmp-*/
+**/tmp-*/
+*.user
+*.suo

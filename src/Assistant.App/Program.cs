@@ -1,4 +1,6 @@
 ﻿using Assistant.App.Actors;
+using Assistant.App.Clients.Console;
+using Assistant.App.Interaction;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -28,10 +30,16 @@ public class Program
                 .Configure<Settings>(context.Configuration.GetSection("Settings"))
                 .AddSingleton<ChatClientFactory>()
                 .AddSingleton<AgentConcurrencyLimiter>()
+                .AddSingleton<AgentSnapshotCompactor>()
+                .AddSingleton<ConsoleGate>()
+                .AddSingleton<IUserInput, SpectreUserInput>()
+                .AddSingleton<OutputEventChannel>()
+                .AddSingleton<IOutputEventSink>(sp => sp.GetRequiredService<OutputEventChannel>())
+                .AddSingleton<IOutputEventHandler, SpectreConsoleOutput>()
                 .AddSingleton(sp => new ActorSystem().WithServiceProvider(sp))
                 .AddTransient<User.Actor>()
-                .AddTransient<AgentRegistry.Actor>()
                 .AddTransient<Agent.Actor>()
+                .AddHostedService<OutputEventService>()
                 .AddHostedService<BootstrapHostedService>());
 
         var host = builder.Build();

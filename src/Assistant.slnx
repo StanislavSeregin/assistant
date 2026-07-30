@@ -1,3 +1,4 @@
 <Solution>
   <Project Path="Assistant.App/Assistant.App.csproj" />
+  <Project Path="AssistantV2.App/AssistantV2.App.csproj" Id="98e83a33-b84a-4686-a597-c1cc3c00dd54" />
 </Solution>

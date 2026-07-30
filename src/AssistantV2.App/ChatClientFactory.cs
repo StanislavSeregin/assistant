@@ -1,4 +1,4 @@
-﻿using Microsoft.Agents.AI;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using OpenAI;
@@ -7,7 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.ClientModel;
 
-namespace Assistant.App;
+namespace AssistantV2.App;
 
 public class ChatClientFactory(IOptions<Settings> options)
 {

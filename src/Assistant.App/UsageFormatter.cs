@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Assistant.App;
 
 public static class UsageFormatter
@@ -16,7 +18,7 @@ public static class UsageFormatter
     {
         var k = tokens / 1024d;
         return tokens % 1024 == 0
-            ? $"{k:0}k"
-            : $"{k:0.#}k";
+            ? string.Create(CultureInfo.InvariantCulture, $"{k:0}k")
+            : string.Create(CultureInfo.InvariantCulture, $"{k:0.#}k");
     }
 }

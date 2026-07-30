@@ -6,32 +6,31 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Assistant.App
+namespace Assistant.App;
+
+public class BootstrapHostedService(ActorSystem system) : IHostedService
 {
-    public class BootstrapHostedService(ActorSystem system) : IHostedService
+    private PID[] Pids { get; set; } = [];
+
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        private PID[] Pids { get; set; } = [];
+        Pids = [.. StartActors()];
+        return Task.CompletedTask;
+    }
 
-        public Task StartAsync(CancellationToken cancellationToken)
+    private IEnumerable<PID> StartActors()
+    {
+        var userProps = system.DI().PropsFor<User.Actor>();
+        yield return system.Root.Spawn(userProps);
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        foreach (var pid in Pids)
         {
-            Pids = [.. StartActors()];
-            return Task.CompletedTask;
+            pid.Stop(system);
         }
 
-        private IEnumerable<PID> StartActors()
-        {
-            var coordinatorProps = system.DI().PropsFor<User.Actor>();
-            yield return system.Root.Spawn(coordinatorProps);
-        }
-
-        public Task StopAsync(CancellationToken cancellationToken)
-        {
-            foreach (var pid in Pids)
-            {
-                pid.Stop(system);
-            }
-
-            return Task.CompletedTask;
-        }
+        return Task.CompletedTask;
     }
 }
