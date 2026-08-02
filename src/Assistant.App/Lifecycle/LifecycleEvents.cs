@@ -78,6 +78,8 @@ public record ToolCalled(
 
 public record SupportAdvice(string Agent, string Message) : ILifecycleEvent;
 
+public record ContextCommitted(string Agent, string Handoff, int HandoffCharacters) : ILifecycleEvent;
+
 public record ErrorEvent(string Agent, string Message) : ILifecycleEvent;
 
 public record UsageEvent(string Agent, long InputTokens) : ILifecycleEvent;

@@ -93,7 +93,8 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
                 break;
             case ToolCalled e:
                 // ReadMail is logged via MailRead with full content.
-                if (e.ToolName == "ReadMail")
+                // CommitContext is logged via ContextCommitted.
+                if (e.ToolName is "ReadMail" or "CommitContext")
                 {
                     break;
                 }
@@ -103,6 +104,14 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
                     $"[grey]{Markup.Escape(e.Agent)} · {Markup.Escape(FormatToolHeader(e))}[/]",
                     FormatToolBody(e),
                     "grey");
+                break;
+            case ContextCommitted e:
+                PauseThinking(e.Agent);
+                WriteNotice(
+                    $"[magenta]{Markup.Escape(e.Agent)} · CommitContext[/]",
+                    e.Handoff,
+                    "magenta",
+                    writeFooter: false);
                 break;
             case TurnWake e:
                 WriteNotice($"[grey]{Markup.Escape(e.Agent)} · wake[/]", e.Message, "grey");
@@ -331,7 +340,11 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
         return true;
     }
 
-    private static void WriteNotice(string headerMarkup, string? body, string bodyStyle)
+    private static void WriteNotice(
+        string headerMarkup,
+        string? body,
+        string bodyStyle,
+        bool writeFooter = true)
     {
         var time = DateTime.Now;
         AnsiConsole.WriteLine();
@@ -345,7 +358,10 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
             }
         }
 
-        WriteBlockFooter();
+        if (writeFooter)
+        {
+            WriteBlockFooter();
+        }
     }
 
     private static void WriteBlockFooter(string? titleMarkup = null)

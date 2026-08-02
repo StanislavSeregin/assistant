@@ -1,11 +1,5 @@
-using Assistant.App.Bootstrap;
-using Assistant.App.Lifecycle;
-using Assistant.App.Mail;
-using Assistant.App.Registry;
-using Assistant.App.Runtime;
 using Assistant.App.Smoke;
-using Assistant.App.Support;
-using Assistant.App.Tools;
+using Assistant.App.UI;
 using Assistant.App.UI.Console;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,30 +34,15 @@ public class Program
 
         builder
             .ConfigureLogging(b => b.ClearProviders())
-            .ConfigureServices((context, services) => services
-                .Configure<Settings>(context.Configuration.GetSection("Settings"))
-                .AddSingleton<ChatClientFactory>()
-                .AddSingleton<LifecycleEventChannel>()
-                .AddSingleton<ILifecycleSink>(sp => sp.GetRequiredService<LifecycleEventChannel>())
-                .AddSingleton<ILifecycleEventHandler, SpectreLifecycleOutput>()
-                .AddSingleton<ConsoleGate>()
-                .AddSingleton<IUserInput, SpectreUserInput>()
-                .AddSingleton<AgentRegistry>()
-                .AddSingleton<MailService>()
-                .AddSingleton<ModelSlotLimiter>()
-                .AddSingleton<AgentBootstrap>()
-                .AddSingleton<AgentMailTools>()
-                .AddSingleton<StatelessAgent>()
-                .AddSingleton<MailTurnSupport>()
-                .AddSingleton<TurnRunner>()
-                .AddHostedService<LifecycleEventService>()
-                .AddHostedService<RootBootstrapHostedService>()
-                .AddHostedService<AgentScheduler>()
-                .AddHostedService<ConsoleUserBridge>());
+            .ConfigureServices((context, services) =>
+            {
+                services.AddAssistantCore(context.Configuration);
+                services.AddSpectreConsoleUi();
+            });
 
         var host = builder.Build();
         // Banner before hosted services so AgentSpawned etc. cannot flash then get cleared.
-        host.Services.GetRequiredService<IUserInput>().ShowBanner();
+        host.Services.GetRequiredService<IAppUi>().Initialize();
         await host.RunAsync();
     }
 }

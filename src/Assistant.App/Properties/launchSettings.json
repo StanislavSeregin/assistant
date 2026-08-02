@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "AssistantV2.App": {
+    "Assistant.App": {
       "commandName": "Project",
       "environmentVariables": {
         "DOTNET_ENVIRONMENT": "Development"

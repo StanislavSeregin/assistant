@@ -1,6 +1,9 @@
+using Assistant.App.Lifecycle;
 using Assistant.App.Mail;
 using Assistant.App.Registry;
 using Assistant.App.Runtime;
+using Assistant.App.Support;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using System;
 using System.Collections.Generic;
@@ -13,8 +16,11 @@ namespace Assistant.App.Tools;
 public sealed class AgentMailTools(
     MailService mail,
     AgentRegistry registry,
-    AgentBootstrap bootstrap)
+    AgentBootstrap bootstrap,
+    ILifecycleSink lifecycle)
 {
+    public const int MaxHandoffCharacters = 4000;
+
     public static readonly HashSet<string> ApplicationToolNames =
     [
         nameof(GetRecipients),
@@ -24,7 +30,8 @@ public sealed class AgentMailTools(
         nameof(ReplyMail),
         nameof(DeleteMail),
         nameof(SpawnSubagent),
-        nameof(DisposeSubagent)
+        nameof(DisposeSubagent),
+        nameof(CommitContext)
     ];
 
     public AITool[] BuildTools(AgentHandle agent, TurnActivity activity) =>
@@ -77,7 +84,14 @@ public sealed class AgentMailTools(
             (string name) => DisposeSubagent(agent, activity, name),
             nameof(DisposeSubagent),
             "End a direct subagent and its subtree. They are gone: you cannot mail them, " +
-            "they cannot mail you, and their mail is removed from your inbox.")
+            "they cannot mail you, and their mail is removed from your inbox."),
+        AIFunctionFactory.Create(
+            [Description(ContinuityHandoffGuide.ToolDescription)]
+            (
+                [Description(ContinuityHandoffGuide.HandoffArgumentDescription)]
+                string handoff) =>
+                CommitContext(agent, activity, handoff),
+            nameof(CommitContext))
     ];
 
     private string GetRecipients(AgentHandle agent)
@@ -211,5 +225,37 @@ public sealed class AgentMailTools(
         {
             return ex.Message;
         }
+    }
+
+    private string CommitContext(AgentHandle agent, TurnActivity activity, string handoff)
+    {
+        if (!activity.AllowContextCommit)
+        {
+            return "Almost — settle mail first with ReplyMail, WriteMail, or DeleteMail, " +
+                   "then call CommitContext. History is still intact.";
+        }
+
+        if (string.IsNullOrWhiteSpace(handoff))
+        {
+            return "CommitContext needs a short non-empty note for your next wake.";
+        }
+
+        var text = handoff.Trim();
+        if (text.Length > MaxHandoffCharacters)
+        {
+            return $"That note is {text.Length} characters (max {MaxHandoffCharacters}). " +
+                   "Please shorten it and call CommitContext again — nothing was cleared yet.";
+        }
+
+        if (agent.Session is null)
+        {
+            return "CommitContext could not run: session is not bound.";
+        }
+
+        agent.ContinuityHandoff = text;
+        agent.Session.SetInMemoryChatHistory([]);
+        activity.MarkContextCommitted();
+        lifecycle.Publish(new ContextCommitted(agent.Name, text, text.Length));
+        return "Saved. Chat history cleared. Next wake will open with this note, then your inbox.";
     }
 }

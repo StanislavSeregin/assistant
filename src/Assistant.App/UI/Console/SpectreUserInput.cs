@@ -4,19 +4,11 @@ using System.Threading.Tasks;
 
 namespace Assistant.App.UI.Console;
 
-public interface IUserInput
-{
-    /// <summary>Draw the startup banner before any lifecycle output.</summary>
-    void ShowBanner();
-
-    Task<string> ReadAsync(CancellationToken cancellationToken);
-}
-
-public sealed class SpectreUserInput(ConsoleGate gate) : IUserInput
+public sealed class SpectreUserInput(ConsoleGate gate) : IUserInput, IAppUi
 {
     private bool _initialized;
 
-    public void ShowBanner()
+    public void Initialize()
     {
         gate.Enter();
         try
@@ -52,7 +44,7 @@ public sealed class SpectreUserInput(ConsoleGate gate) : IUserInput
         }
 
         System.Console.Clear();
-        AnsiConsole.Write(new FigletText("AssistantV2")
+        AnsiConsole.Write(new FigletText("Assistant")
         {
             Justification = Justify.Center,
             Color = Color.Cyan1

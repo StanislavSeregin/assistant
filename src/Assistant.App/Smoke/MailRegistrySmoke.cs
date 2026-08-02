@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace Assistant.App.Smoke;
 
 /// <summary>
-/// In-process mail/registry smoke without a model. Run: AssistantV2.App --smoke
+/// In-process mail/registry smoke without a model. Run: Assistant.App --smoke
 /// </summary>
 public static class MailRegistrySmoke
 {

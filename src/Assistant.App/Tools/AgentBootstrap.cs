@@ -1,8 +1,8 @@
 using Assistant.App.Registry;
 using Assistant.App.Runtime;
+using Assistant.App.Support;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using System;
 using System.IO;
@@ -13,8 +13,7 @@ namespace Assistant.App.Tools;
 
 public sealed class AgentBootstrap(
     ChatClientFactory chatClientFactory,
-    IOptions<Settings> settings,
-    IServiceProvider services)
+    IOptions<Settings> settings)
 {
     public void Bootstrap(AgentHandle handle)
     {
@@ -28,7 +27,6 @@ public sealed class AgentBootstrap(
             return;
         }
 
-        var turnRunner = services.GetRequiredService<TurnRunner>();
         var cfg = settings.Value;
         var instructions = BuildInstructions(handle);
 
@@ -51,11 +49,6 @@ public sealed class AgentBootstrap(
             DisableAgentSkillsProvider = true,
             DisableOpenTelemetry = true
         });
-
-        if (agent.GetService<FunctionInvokingChatClient>() is { } functionClient)
-        {
-            functionClient.FunctionInvoker = turnRunner.InvokeToolAsync;
-        }
 
         var session = await agent.CreateSessionAsync(cancellationToken);
         handle.BindSession(agent, session);
@@ -111,12 +104,15 @@ public sealed class AgentBootstrap(
             - Only WriteMail / ReplyMail are delivered. Free text and thinking are private.
             - ReplyMail answers an inbox mail; WriteMail starts a new conversation.
             - You can mail your parent and your direct subagents (GetRecipients).
-            - Messages prefixed [SYSTEM] are runtime turn notices (wake, channel corrections).
-              They are not inbox mail and not from a person — do not ReplyMail them.
+            - Messages prefixed [SYSTEM] are runtime notices (wake, continuity, gentle
+              reminders). They are not inbox mail — do not ReplyMail them.
+
+            Each wake:
+            - Handle mail first.
+            - {ContinuityHandoffGuide.BootstrapBlurb}
             - Before any subagent collaboration, load `subagent-management`.
             - After spawning, WriteMail the subagent to brief them.
             - DisposeSubagent when a child's work is finished.
-            - After you have delivered what this turn needs, you are done.
 
             Be brief; prefer tools over deliberation.
             """;

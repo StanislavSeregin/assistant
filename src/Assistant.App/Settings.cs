@@ -25,8 +25,6 @@ public class Settings
     public string RootInstructions { get; set; } =
         "Organize the execution of the user's tasks.";
 
-    public string UserDisplayName { get; set; } = "User";
-
     public string UserDescription { get; set; } = "Director";
 
     public string UserMailSubject { get; set; } = "User request";

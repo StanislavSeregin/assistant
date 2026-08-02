@@ -61,6 +61,11 @@ public sealed class AgentHandle
 
     public Channel<WakeSignal> WakeChannel { get; }
 
+    /// <summary>
+    /// Durable handoff written by CommitContext; survives session history wipe.
+    /// </summary>
+    public string? ContinuityHandoff { get; set; }
+
     public AIAgent? Agent { get; private set; }
 
     public AgentSession? Session { get; private set; }

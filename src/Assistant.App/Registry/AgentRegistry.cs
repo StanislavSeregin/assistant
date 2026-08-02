@@ -3,7 +3,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Channels;
+using System.Threading.Tasks;
 
 namespace Assistant.App.Registry;
 
@@ -18,30 +20,12 @@ public sealed class AgentRegistry(ILifecycleSink lifecycle)
         });
     private AgentId? _rootId;
 
-    public AgentId? RootId => _rootId;
-
     public AgentHandle? Root =>
         _rootId is { } id && _agents.TryGetValue(id, out var handle) ? handle : null;
 
     public ChannelReader<AgentHandle> Registered => _registered.Reader;
 
     public bool TryGet(AgentId id, out AgentHandle handle) => _agents.TryGetValue(id, out handle!);
-
-    public bool TryGetByName(AgentId parentId, string name, out AgentHandle handle)
-    {
-        handle = null!;
-        if (!_agents.TryGetValue(parentId, out var parent))
-        {
-            return false;
-        }
-
-        if (!parent.ChildrenByName.TryGetValue(name, out var childId))
-        {
-            return false;
-        }
-
-        return _agents.TryGetValue(childId, out handle!);
-    }
 
     public AgentHandle RegisterRoot(
         string name,
@@ -150,6 +134,55 @@ public sealed class AgentRegistry(ILifecycleSink lifecycle)
     }
 
     public IEnumerable<AgentHandle> All() => _agents.Values;
+
+    public bool IsBusy()
+    {
+        foreach (var agent in _agents.Values)
+        {
+            if (agent.State == AgentRunState.Disposed)
+            {
+                continue;
+            }
+
+            if (agent.State == AgentRunState.Running || agent.Inbox.HasMail())
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public async Task WaitUntilQuietAsync(CancellationToken cancellationToken)
+    {
+        var idleRounds = 0;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            if (IsBusy())
+            {
+                idleRounds = 0;
+            }
+            else
+            {
+                idleRounds++;
+                // Settle across EndRun → RequestWake(HasMail).
+                if (idleRounds >= 2)
+                {
+                    return;
+                }
+            }
+
+            await Task.Delay(50, cancellationToken);
+        }
+    }
+
+    public async Task WaitForRootAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested && Root?.Agent is null)
+        {
+            await Task.Delay(50, cancellationToken);
+        }
+    }
 
     private void DisposeRecursive(AgentHandle handle, List<AgentHandle> disposed)
     {

@@ -1,5 +1,4 @@
 using Assistant.App.Lifecycle;
-using Assistant.App.Mail;
 using Assistant.App.Registry;
 using Assistant.App.Support;
 using Assistant.App.Tools;
@@ -8,9 +7,6 @@ using Microsoft.Extensions.AI;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text.Encodings.Web;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -19,14 +15,9 @@ namespace Assistant.App.Runtime;
 public sealed class TurnRunner(
     ChatClientFactory chatClientFactory,
     AgentMailTools tools,
-    MailTurnSupport mailTurnSupport,
+    TurnSupportAdvisor turnSupport,
     ILifecycleSink lifecycle)
 {
-    private static readonly JsonSerializerOptions ToolArgumentJsonOptions = new()
-    {
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-    };
-
     private readonly ConcurrentDictionary<string, byte> _invokedToolCalls = new();
     private readonly AsyncLocal<TurnScope?> _scope = new();
 
@@ -52,22 +43,67 @@ public sealed class TurnRunner(
         {
             // Turn input must be User role — System is often dropped and the run returns empty.
             var turnHistoryStart = GetHistoryCount(agent);
-            var wake = BuildWakeMessage(agent);
+            var wake = TurnPromptBuilder.BuildWakeMessage(agent);
             lifecycle.Publish(new TurnWake(agent.Name, wake.Text));
             await RunModelAsync(agent, wake, activity, cancellationToken);
 
-            var supportAttempt = 0;
+            var mailSupportAttempt = 0;
             while (!activity.DidHandleMail && !cancellationToken.IsCancellationRequested)
             {
-                supportAttempt++;
-                var advice = await mailTurnSupport.AdviseAsync(
+                mailSupportAttempt++;
+                var advice = await turnSupport.AdviseAsync(
+                    TurnSupportMode.Mail,
                     agent,
                     turnHistoryStart,
-                    supportAttempt,
+                    mailSupportAttempt,
                     cancellationToken);
                 if (string.IsNullOrWhiteSpace(advice))
                 {
-                    advice = BuildFallbackSystemNotice(agent);
+                    advice = TurnPromptBuilder.BuildFallbackMailNotice(agent);
+                }
+
+                var systemNotice = "[SYSTEM]" + Environment.NewLine + advice;
+                lifecycle.Publish(new SupportAdvice(agent.Name, systemNotice));
+                await RunModelAsync(
+                    agent,
+                    new ChatMessage(ChatRole.User, systemNotice),
+                    activity,
+                    cancellationToken);
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            // Agent may CommitContext in the same model run right after mail tools.
+            if (activity.DidCommitContext)
+            {
+                return;
+            }
+
+            var compactHistoryStart = GetHistoryCount(agent);
+            var compactNudge = TurnPromptBuilder.BuildCompactNudgeMessage();
+            lifecycle.Publish(new SupportAdvice(agent.Name, compactNudge.Text!));
+            await RunModelAsync(agent, compactNudge, activity, cancellationToken);
+            if (activity.DidCommitContext)
+            {
+                return;
+            }
+
+            var compactSupportAttempt = 0;
+            while (!activity.DidCommitContext && !cancellationToken.IsCancellationRequested)
+            {
+                compactSupportAttempt++;
+                var advice = await turnSupport.AdviseAsync(
+                    TurnSupportMode.Compact,
+                    agent,
+                    compactHistoryStart,
+                    compactSupportAttempt,
+                    cancellationToken);
+                if (string.IsNullOrWhiteSpace(advice))
+                {
+                    advice = TurnPromptBuilder.BuildFallbackCompactNotice();
                 }
 
                 var systemNotice = "[SYSTEM]" + Environment.NewLine + advice;
@@ -123,7 +159,7 @@ public sealed class TurnRunner(
                 invocation.Function.Name,
                 callId,
                 origin,
-                result: FormatToolResult(result));
+                result: ToolCallFormatting.FormatResult(result));
         }
 
         return result;
@@ -141,18 +177,23 @@ public sealed class TurnRunner(
 
         try
         {
+            if (agent.Agent!.GetService<FunctionInvokingChatClient>() is { } functionClient)
+            {
+                functionClient.FunctionInvoker = InvokeToolAsync;
+            }
+
             var updates = new List<AgentResponseUpdate>();
-            await foreach (var update in agent.Agent!.RunStreamingAsync(
+            await foreach (var update in agent.Agent.RunStreamingAsync(
                 input,
                 agent.Session,
                 chatClientFactory.CreateRunOptions(tools.BuildTools(agent, activity)),
                 cancellationToken))
             {
                 updates.Add(update);
-                inputTokens = ReadInputTokens(update) ?? inputTokens;
-                CollectToolCalls(update, pendingToolCalls);
+                inputTokens = ToolCallFormatting.ReadInputTokens(update) ?? inputTokens;
+                ToolCallFormatting.CollectToolCalls(update, pendingToolCalls);
 
-                var text = ReadVisibleText(update);
+                var text = ToolCallFormatting.ReadVisibleText(update);
                 if (!string.IsNullOrWhiteSpace(text))
                 {
                     EmitThinking(agent.Name, text);
@@ -176,41 +217,6 @@ public sealed class TurnRunner(
         agent.Session is not null && agent.Session.TryGetInMemoryChatHistory(out var history)
             ? history.Count
             : 0;
-
-    private static string BuildFallbackSystemNotice(AgentHandle agent)
-    {
-        var open = agent.Inbox.List();
-        var parentMail = open.FirstOrDefault(item => item.IsFromParent) ?? open.FirstOrDefault();
-        if (parentMail is null)
-        {
-            return "Turn incomplete: no mail was delivered. " +
-                   "Call WriteMail or ReplyMail — free text is private and reaches no one.";
-        }
-
-        return $"Turn incomplete: inbox still has id={parentMail.Id} from={parentMail.From} " +
-               $"subject={parentMail.Subject}. ReplyMail to that id with your answer — " +
-               "free text is private and reaches no one.";
-    }
-
-    private static ChatMessage BuildWakeMessage(AgentHandle agent)
-    {
-        var open = agent.Inbox.List();
-        if (open.Count == 0)
-        {
-            throw new InvalidOperationException(
-                $"Agent '{agent.Name}' started a turn with an empty inbox.");
-        }
-
-        var lines = open.Select(i =>
-            $"- id={i.Id}; time={MailTimestamp.FormatUtc(i.Timestamp)}; from={i.From}; " +
-            $"subject={i.Subject}{MailStatusDisplay.ListSuffix(i.Status)}");
-        return new ChatMessage(
-            ChatRole.User,
-            "[SYSTEM] You have mail. Solve what was asked; deliver with ReplyMail or WriteMail " +
-            "(only those are seen):"
-            + Environment.NewLine
-            + string.Join(Environment.NewLine, lines));
-    }
 
     private void EmitThinking(string agentName, string text)
     {
@@ -280,90 +286,12 @@ public sealed class TurnRunner(
         IEnumerable<KeyValuePair<string, object?>>? arguments = null,
         string? result = null)
     {
-        IReadOnlyDictionary<string, string?>? formattedArguments = null;
-        if (arguments is not null)
-        {
-            formattedArguments = arguments.ToDictionary(
-                argument => argument.Key,
-                argument => FormatToolArgument(argument.Value),
-                StringComparer.Ordinal);
-            if (formattedArguments.Count == 0)
-            {
-                formattedArguments = null;
-            }
-        }
-
         lifecycle.Publish(new ToolCalled(
             agentName,
             toolName,
             origin,
-            formattedArguments,
+            ToolCallFormatting.FormatArguments(arguments),
             callId,
             result));
-    }
-
-    private static string? FormatToolResult(object? result) =>
-        result switch
-        {
-            null => null,
-            string text => string.IsNullOrWhiteSpace(text) ? null : text,
-            _ => result.ToString()
-        };
-
-    private static string? FormatToolArgument(object? value) =>
-        value switch
-        {
-            null => null,
-            string text => text,
-            JsonElement { ValueKind: JsonValueKind.Null } => null,
-            JsonElement { ValueKind: JsonValueKind.String } element => element.GetString(),
-            JsonElement element => JsonSerializer.Serialize(element, ToolArgumentJsonOptions),
-            _ => JsonSerializer.Serialize(value, ToolArgumentJsonOptions)
-        };
-
-    private static void CollectToolCalls(
-        AgentResponseUpdate update,
-        Dictionary<string, FunctionCallContent> toolCalls)
-    {
-        foreach (var call in update.Contents.OfType<FunctionCallContent>())
-        {
-            var key = string.IsNullOrWhiteSpace(call.CallId)
-                ? $"{call.Name}:{toolCalls.Count}"
-                : call.CallId;
-            toolCalls[key] = call;
-        }
-    }
-
-    private static long? ReadInputTokens(AgentResponseUpdate update)
-    {
-        foreach (var content in update.Contents)
-        {
-            if (content is UsageContent { Details.InputTokenCount: long tokens })
-            {
-                return tokens;
-            }
-        }
-
-        return null;
-    }
-
-    private static string ReadVisibleText(AgentResponseUpdate update)
-    {
-        if (update.Contents is not { Count: > 0 })
-        {
-            return update.Text;
-        }
-
-        var parts = update.Contents
-            .Select(content => content switch
-            {
-                TextContent { Text: { Length: > 0 } text } => text,
-                TextReasoningContent { Text: { Length: > 0 } text } => text,
-                _ => null
-            })
-            .Where(text => text is not null);
-
-        var combined = string.Concat(parts);
-        return combined.Length > 0 ? combined : update.Text;
     }
 }

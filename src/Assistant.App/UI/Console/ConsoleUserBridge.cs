@@ -1,6 +1,7 @@
 using Assistant.App.Lifecycle;
 using Assistant.App.Mail;
 using Assistant.App.Registry;
+using Assistant.App.UI;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using System.Threading;
@@ -20,10 +21,7 @@ public sealed class ConsoleUserBridge(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        while (!stoppingToken.IsCancellationRequested && registry.Root?.Agent is null)
-        {
-            await Task.Delay(50, stoppingToken);
-        }
+        await registry.WaitForRootAsync(stoppingToken);
 
         var subject = settings.Value.UserMailSubject;
 
@@ -37,48 +35,7 @@ public sealed class ConsoleUserBridge(
             }
 
             mail.WriteFromUser(input, subject);
-            await WaitUntilAgentsQuietAsync(stoppingToken);
+            await registry.WaitUntilQuietAsync(stoppingToken);
         }
-    }
-
-    private async Task WaitUntilAgentsQuietAsync(CancellationToken cancellationToken)
-    {
-        var idleRounds = 0;
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            if (IsBusy())
-            {
-                idleRounds = 0;
-            }
-            else
-            {
-                idleRounds++;
-                // Settle across EndRun → RequestWake(HasMail).
-                if (idleRounds >= 2)
-                {
-                    return;
-                }
-            }
-
-            await Task.Delay(50, cancellationToken);
-        }
-    }
-
-    private bool IsBusy()
-    {
-        foreach (var agent in registry.All())
-        {
-            if (agent.State == AgentRunState.Disposed)
-            {
-                continue;
-            }
-
-            if (agent.State == AgentRunState.Running || agent.Inbox.HasMail())
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }
