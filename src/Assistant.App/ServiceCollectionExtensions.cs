@@ -10,6 +10,7 @@ using Assistant.App.UI.Abstractions;
 using Assistant.App.UI.Formatting;
 using Assistant.App.UI.Tui;
 using Assistant.App.UI.Tui.Log;
+using Assistant.App.UI.Workspace;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -26,7 +27,7 @@ public static class ServiceCollectionExtensions
             .AddSingleton<ChatClientFactory>()
             .AddSingleton<LifecycleEventChannel>()
             .AddSingleton<ILifecycleSink>(sp => sp.GetRequiredService<LifecycleEventChannel>())
-            .AddSingleton<AgentRegistry>()
+            .AddSingleton<NodeRegistry>()
             .AddSingleton<MailService>()
             .AddSingleton<ModelSlotLimiter>()
             .AddSingleton<AgentBootstrap>()
@@ -35,15 +36,15 @@ public static class ServiceCollectionExtensions
             .AddSingleton<TurnSupportAdvisor>()
             .AddSingleton<TurnRunner>()
             .AddHostedService<LifecycleEventService>()
-            .AddHostedService<RootBootstrapHostedService>()
-            .AddHostedService<AgentScheduler>();
+            .AddHostedService<UserBootstrapHostedService>()
+            .AddHostedService<LlmNodeScheduler>();
 
         return services;
     }
 
     /// <summary>
     /// Terminal.Gui tiled UI. Swap this registration for another toolkit that implements
-    /// <see cref="ILogSink"/> / <see cref="IMailComposer"/> / <see cref="IAppUi"/>.
+    /// <see cref="ILogSink"/> / <see cref="IUserWorkspace"/> / <see cref="IAppUi"/>.
     /// </summary>
     public static IServiceCollection AddTerminalGuiUi(this IServiceCollection services)
     {
@@ -54,12 +55,11 @@ public static class ServiceCollectionExtensions
             .AddSingleton<CoalescingLogSink>()
             .AddSingleton<ILogSink>(sp => sp.GetRequiredService<CoalescingLogSink>())
             .AddSingleton<LifecycleLogPresenter>()
+            .AddSingleton<UserWorkspace>()
+            .AddSingleton<IUserWorkspace>(sp => sp.GetRequiredService<UserWorkspace>())
             .AddSingleton<ILifecycleEventHandler, TuiLifecycleOutput>()
-            .AddSingleton<MailComposerHub>()
-            .AddSingleton<IMailComposer>(sp => sp.GetRequiredService<MailComposerHub>())
             .AddSingleton<TuiAppUi>()
-            .AddSingleton<IAppUi>(sp => sp.GetRequiredService<TuiAppUi>())
-            .AddHostedService<MailComposeBridge>();
+            .AddSingleton<IAppUi>(sp => sp.GetRequiredService<TuiAppUi>());
 
         return services;
     }

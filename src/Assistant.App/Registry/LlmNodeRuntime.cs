@@ -8,33 +8,23 @@ using System.Threading.Channels;
 
 namespace Assistant.App.Registry;
 
-public enum AgentRunState
+public enum NodeRunState
 {
     Idle,
     Running,
     Disposed
 }
 
-public sealed class AgentHandle
+/// <summary>
+/// LLM execution surface for a node. Human nodes have no runtime instance.
+/// </summary>
+public sealed class LlmNodeRuntime
 {
     private readonly ConcurrentQueue<MailNotice> _pendingNotices = new();
-    private int _state = (int)AgentRunState.Idle;
+    private int _state = (int)NodeRunState.Idle;
 
-    public AgentHandle(
-        AgentId id,
-        string name,
-        string description,
-        string instructions,
-        AgentId parentId,
-        string? parentDescription)
+    public LlmNodeRuntime()
     {
-        Id = id;
-        Name = name;
-        Description = description;
-        Instructions = instructions;
-        ParentId = parentId;
-        ParentDescription = parentDescription;
-        Inbox = new MailInbox();
         WakeChannel = Channel.CreateUnbounded<WakeSignal>(
             new UnboundedChannelOptions
             {
@@ -43,36 +33,15 @@ public sealed class AgentHandle
             });
     }
 
-    public AgentId Id { get; }
-
-    public string Name { get; }
-
-    public string Description { get; }
-
-    public string Instructions { get; }
-
-    public AgentId ParentId { get; }
-
-    public string? ParentDescription { get; }
-
-    public ConcurrentDictionary<string, AgentId> ChildrenByName { get; } = new(StringComparer.Ordinal);
-
-    public MailInbox Inbox { get; }
-
     public Channel<WakeSignal> WakeChannel { get; }
 
-    /// <summary>
-    /// Durable handoff written by CommitContext; survives session history wipe.
-    /// </summary>
     public string? ContinuityHandoff { get; set; }
 
     public AIAgent? Agent { get; private set; }
 
     public AgentSession? Session { get; private set; }
 
-    public CancellationTokenSource Lifetime { get; } = new();
-
-    public AgentRunState State => (AgentRunState)_state;
+    public NodeRunState State => (NodeRunState)_state;
 
     public void BindSession(AIAgent agent, AgentSession session)
     {
@@ -83,19 +52,18 @@ public sealed class AgentHandle
     public bool TryBeginRun() =>
         Interlocked.CompareExchange(
             ref _state,
-            (int)AgentRunState.Running,
-            (int)AgentRunState.Idle) == (int)AgentRunState.Idle;
+            (int)NodeRunState.Running,
+            (int)NodeRunState.Idle) == (int)NodeRunState.Idle;
 
     public void EndRun() =>
         Interlocked.CompareExchange(
             ref _state,
-            (int)AgentRunState.Idle,
-            (int)AgentRunState.Running);
+            (int)NodeRunState.Idle,
+            (int)NodeRunState.Running);
 
     public void MarkDisposed()
     {
-        Interlocked.Exchange(ref _state, (int)AgentRunState.Disposed);
-        Lifetime.Cancel();
+        Interlocked.Exchange(ref _state, (int)NodeRunState.Disposed);
         WakeChannel.Writer.TryComplete();
     }
 

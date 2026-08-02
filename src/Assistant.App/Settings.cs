@@ -18,11 +18,11 @@ public class Settings
 
     public string SkillsPath { get; set; } = "skills";
 
-    public string RootName { get; set; } = "Secretary";
+    public string DefaultChildName { get; set; } = "Secretary";
 
-    public string RootDescription { get; set; } = "Manager";
+    public string DefaultChildDescription { get; set; } = "Manager";
 
-    public string RootInstructions { get; set; } =
+    public string DefaultChildInstructions { get; set; } =
         "Organize the execution of the user's tasks.";
 
     public string UserDescription { get; set; } = "Director";

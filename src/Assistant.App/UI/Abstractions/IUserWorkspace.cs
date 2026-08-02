@@ -1,0 +1,52 @@
+using Assistant.App.Mail;
+using System;
+using System.Collections.Generic;
+
+namespace Assistant.App.UI.Abstractions;
+
+public sealed record ChildNodeInfo(string Name, string Description);
+
+public sealed record SpawnDefaults(
+    string Name,
+    string Description,
+    string Instructions,
+    string ParentRole);
+
+/// <summary>
+/// User-node operations for the interactive workspace (same mail/org ops as a parent agent).
+/// </summary>
+public interface IUserWorkspace
+{
+    event EventHandler? InboxChanged;
+
+    event EventHandler? ChildrenChanged;
+
+    string DefaultMailSubject { get; }
+
+    SpawnDefaults GetSpawnDefaults();
+
+    IReadOnlyList<InboxItem> ListInbox();
+
+    MailMessage? FindMail(string mailId);
+
+    /// <summary>Marks read and returns the message, or null if missing.</summary>
+    MailMessage? ReadMail(string mailId);
+
+    (bool Ok, string Message) ReplyMail(string mailId, string body);
+
+    (bool Ok, string Message) DeleteMail(string mailId);
+
+    (bool Ok, string Message) WriteMail(string toName, string subject, string body);
+
+    IReadOnlyList<ChildNodeInfo> ListChildren();
+
+    (bool Ok, string Message) SpawnChild(
+        string name,
+        string description,
+        string instructions);
+
+    (bool Ok, string Message) DisposeChild(string name);
+
+    /// <summary>Called from the lifecycle UI handler so lists can refresh reactively.</summary>
+    void NotifyLifecycle(Lifecycle.ILifecycleEvent lifecycleEvent);
+}

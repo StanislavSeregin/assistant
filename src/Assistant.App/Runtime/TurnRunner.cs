@@ -21,16 +21,18 @@ public sealed class TurnRunner(
     private readonly ConcurrentDictionary<string, byte> _invokedToolCalls = new();
     private readonly AsyncLocal<TurnScope?> _scope = new();
 
-    private sealed class TurnScope(AgentHandle agent, TurnActivity activity)
+    private sealed class TurnScope(NodeHandle agent, TurnActivity activity)
     {
-        public AgentHandle Agent { get; } = agent;
+        public NodeHandle Agent { get; } = agent;
         public TurnActivity Activity { get; } = activity;
         public Guid? ThinkingStreamId { get; set; }
     }
 
-    public async Task RunTurnAsync(AgentHandle agent, CancellationToken cancellationToken)
+    public async Task RunTurnAsync(NodeHandle agent, CancellationToken cancellationToken)
     {
-        if (agent.Agent is null || agent.Session is null)
+        var llm = agent.Llm
+            ?? throw new InvalidOperationException($"Node '{agent.Name}' is not an LLM node.");
+        if (llm.Agent is null || llm.Session is null)
         {
             throw new InvalidOperationException($"Agent '{agent.Name}' is not bootstrapped.");
         }
@@ -166,26 +168,28 @@ public sealed class TurnRunner(
     }
 
     private async Task RunModelAsync(
-        AgentHandle agent,
+        NodeHandle agent,
         ChatMessage input,
         TurnActivity activity,
         CancellationToken cancellationToken)
     {
+        var llm = agent.Llm
+            ?? throw new InvalidOperationException($"Node '{agent.Name}' is not an LLM node.");
         _invokedToolCalls.Clear();
         long? inputTokens = null;
         var pendingToolCalls = new Dictionary<string, FunctionCallContent>(StringComparer.Ordinal);
 
         try
         {
-            if (agent.Agent!.GetService<FunctionInvokingChatClient>() is { } functionClient)
+            if (llm.Agent!.GetService<FunctionInvokingChatClient>() is { } functionClient)
             {
                 functionClient.FunctionInvoker = InvokeToolAsync;
             }
 
             var updates = new List<AgentResponseUpdate>();
-            await foreach (var update in agent.Agent.RunStreamingAsync(
+            await foreach (var update in llm.Agent.RunStreamingAsync(
                 input,
-                agent.Session,
+                llm.Session,
                 chatClientFactory.CreateRunOptions(tools.BuildTools(agent, activity)),
                 cancellationToken))
             {
@@ -213,8 +217,8 @@ public sealed class TurnRunner(
         }
     }
 
-    private static int GetHistoryCount(AgentHandle agent) =>
-        agent.Session is not null && agent.Session.TryGetInMemoryChatHistory(out var history)
+    private static int GetHistoryCount(NodeHandle agent) =>
+        agent.Llm?.Session is not null && agent.Llm.Session.TryGetInMemoryChatHistory(out var history)
             ? history.Count
             : 0;
 

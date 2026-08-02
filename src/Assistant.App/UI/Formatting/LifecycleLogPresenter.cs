@@ -27,10 +27,10 @@ public sealed class LifecycleLogPresenter
         switch (lifecycleEvent)
         {
             case ThinkingStarted e:
-                OpenThinking(e.StreamId, e.Agent);
+                OpenThinking(e.StreamId, e.Node);
                 break;
             case ThinkingDelta e:
-                WriteDelta(e.StreamId, e.Agent, e.Text);
+                WriteDelta(e.StreamId, e.Node, e.Text);
                 break;
             case ThinkingCompleted e:
                 CompleteStream(e.StreamId, e.InputTokens);
@@ -40,7 +40,7 @@ public sealed class LifecycleLogPresenter
                 WriteMail(e);
                 break;
             case MailRead e:
-                PauseThinking(e.Agent);
+                PauseThinking(e.Node);
                 WriteMailRead(e);
                 break;
             case ToolCalled e:
@@ -49,42 +49,50 @@ public sealed class LifecycleLogPresenter
                     break;
                 }
 
-                PauseThinking(e.Agent);
+                PauseThinking(e.Node);
                 WriteNotice(
-                    $"{e.Agent} · {FormatToolHeader(e)}",
+                    $"{e.Node} · {FormatToolHeader(e)}",
                     FormatToolBody(e),
                     LogTone.Grey);
                 break;
             case ContextCommitted e:
-                PauseThinking(e.Agent);
+                PauseThinking(e.Node);
                 WriteNotice(
-                    $"{e.Agent} · CommitContext",
+                    $"{e.Node} · CommitContext",
                     e.Handoff,
                     LogTone.Magenta,
                     writeFooter: false);
                 break;
             case TurnWake e:
-                WriteNotice($"{e.Agent} · wake", e.Message, LogTone.Grey);
+                WriteNotice($"{e.Node} · wake", e.Message, LogTone.Grey);
                 break;
             case SupportAdvice e:
-                PauseThinking(e.Agent);
-                WriteNotice($"{e.Agent} · support", e.Message, LogTone.Yellow);
+                PauseThinking(e.Node);
+                WriteNotice($"{e.Node} · support", e.Message, LogTone.Yellow);
                 break;
             case ErrorEvent e:
-                PauseThinking(e.Agent);
-                WriteNotice($"{e.Agent} · error", e.Message, LogTone.Red);
+                PauseThinking(e.Node);
+                WriteNotice($"{e.Node} · error", e.Message, LogTone.Red);
                 break;
-            case AgentSpawned e:
-                WriteNotice(
-                    $"{e.Parent} -> {e.Agent} · spawn",
-                    FormatSpawn(e),
-                    LogTone.Blue);
+            case NodeSpawned e:
+                if (string.IsNullOrEmpty(e.Parent))
+                {
+                    WriteNotice($"{e.Node} · online", e.Description, LogTone.Blue);
+                }
+                else
+                {
+                    WriteNotice(
+                        $"{e.Parent} -> {e.Node} · spawn",
+                        FormatSpawn(e),
+                        LogTone.Blue);
+                }
+
                 break;
-            case AgentDisposed e:
-                WriteNotice($"{e.Parent} -> {e.Agent} · dispose", null, LogTone.Blue);
+            case NodeDisposed e:
+                WriteNotice($"{e.Parent} -> {e.Node} · dispose", null, LogTone.Blue);
                 break;
             case UsageEvent e:
-                PauseThinking(e.Agent);
+                PauseThinking(e.Node);
                 WriteUsage(e);
                 break;
         }
@@ -93,19 +101,28 @@ public sealed class LifecycleLogPresenter
     private void WriteMail(MailSent e)
     {
         var isForUser = e.To == "User";
-        var header = isForUser
-            ? $"{e.From} -> You · mail"
-            : $"{e.From} -> {e.To} · {(e.IsReply ? "reply" : "mail")}";
-        var headerTone = isForUser ? LogTone.BoldGreen : LogTone.Cyan;
-        var bodyTone = isForUser ? LogTone.BoldWhite : LogTone.Yellow;
+        if (isForUser)
+        {
+            _log.BlankLine();
+            _log.Header(
+                $"{e.From} -> You · {(e.IsReply ? "reply" : "mail")}",
+                LogTone.BoldGreen,
+                DateTime.Now);
+            _log.BodyLine($"id: {e.MailId} · {e.Subject}", LogTone.Grey);
+            _log.Footer();
+            return;
+        }
 
         _log.BlankLine();
-        _log.Header(header, headerTone, DateTime.Now);
+        _log.Header(
+            $"{e.From} -> {e.To} · {(e.IsReply ? "reply" : "mail")}",
+            LogTone.Cyan,
+            DateTime.Now);
         _log.BodyLine($"id: {e.MailId}", LogTone.Grey);
         _log.BodyLine(e.Subject, LogTone.Grey);
         foreach (var line in e.Body.ReplaceLineEndings("\n").Split('\n'))
         {
-            _log.BodyLine(line, bodyTone);
+            _log.BodyLine(line, LogTone.Yellow);
         }
 
         _log.Footer();
@@ -114,7 +131,7 @@ public sealed class LifecycleLogPresenter
     private void WriteMailRead(MailRead e)
     {
         _log.BlankLine();
-        _log.Header($"{e.Agent} · ReadMail from {e.From}", LogTone.Grey, DateTime.Now);
+        _log.Header($"{e.Node} · ReadMail from {e.From}", LogTone.Grey, DateTime.Now);
         _log.BodyLine($"id: {e.MailId}", LogTone.Grey);
         _log.BodyLine($"time: {MailTimestamp.FormatUtc(e.Timestamp)}", LogTone.Grey);
         _log.BodyLine(e.Subject, LogTone.Grey);
@@ -172,7 +189,7 @@ public sealed class LifecycleLogPresenter
         return true;
     }
 
-    private static string FormatSpawn(AgentSpawned e)
+    private static string FormatSpawn(NodeSpawned e)
     {
         var parentRole = string.IsNullOrWhiteSpace(e.ParentDescription)
             ? "(none)"
@@ -289,7 +306,7 @@ public sealed class LifecycleLogPresenter
             return;
         }
 
-        _log.Footer($"{message.Agent} · {usage}");
+        _log.Footer($"{message.Node} · {usage}");
     }
 
     private sealed class ActiveStream(string? agent, DateTime startedAt)

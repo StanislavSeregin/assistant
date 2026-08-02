@@ -7,43 +7,49 @@ using System.Threading.Tasks;
 
 namespace Assistant.App.Runtime;
 
-public sealed class AgentScheduler(
-    AgentRegistry registry,
+/// <summary>
+/// Runs wake/turn loops for LLM nodes only. Human nodes are reactive via UI.
+/// </summary>
+public sealed class LlmNodeScheduler(
+    NodeRegistry registry,
     ModelSlotLimiter slots,
     TurnRunner turnRunner,
     ILifecycleSink lifecycle) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await foreach (var agent in registry.Registered.ReadAllAsync(stoppingToken))
+        await foreach (var node in registry.LlmRegistered.ReadAllAsync(stoppingToken))
         {
             _ = Task.Run(
-                () => RunAgentLoopAsync(agent, stoppingToken),
+                () => RunNodeLoopAsync(node, stoppingToken),
                 CancellationToken.None);
         }
     }
 
-    private async Task RunAgentLoopAsync(AgentHandle agent, CancellationToken stoppingToken)
+    private async Task RunNodeLoopAsync(NodeHandle node, CancellationToken stoppingToken)
     {
+        var llm = node.Llm
+            ?? throw new InvalidOperationException($"Node '{node.Name}' has no LLM runtime.");
+
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(
             stoppingToken,
-            agent.Lifetime.Token);
+            node.Lifetime.Token);
 
         try
         {
-            await foreach (var wake in agent.WakeChannel.Reader.ReadAllAsync(linked.Token))
+            await foreach (var wake in llm.WakeChannel.Reader.ReadAllAsync(linked.Token))
             {
                 _ = wake;
-                if (agent.State == AgentRunState.Disposed)
+                if (node.IsDisposed)
                 {
                     break;
                 }
 
-                while (agent.WakeChannel.Reader.TryRead(out _))
+                while (llm.WakeChannel.Reader.TryRead(out _))
                 {
                 }
 
-                if (!agent.TryBeginRun())
+                if (!llm.TryBeginRun())
                 {
                     continue;
                 }
@@ -51,7 +57,7 @@ public sealed class AgentScheduler(
                 try
                 {
                     await slots.RunAsync(
-                        () => turnRunner.RunTurnAsync(agent, linked.Token),
+                        () => turnRunner.RunTurnAsync(node, linked.Token),
                         linked.Token);
                 }
                 catch (OperationCanceledException) when (linked.Token.IsCancellationRequested)
@@ -60,14 +66,14 @@ public sealed class AgentScheduler(
                 }
                 catch (Exception ex)
                 {
-                    lifecycle.Publish(new ErrorEvent(agent.Name, ex.Message));
+                    lifecycle.Publish(new ErrorEvent(node.Name, ex.Message));
                 }
                 finally
                 {
-                    agent.EndRun();
-                    if (agent.State != AgentRunState.Disposed && agent.Inbox.HasMail())
+                    llm.EndRun();
+                    if (!node.IsDisposed && node.Inbox.HasMail())
                     {
-                        agent.RequestWake();
+                        llm.RequestWake();
                     }
                 }
             }

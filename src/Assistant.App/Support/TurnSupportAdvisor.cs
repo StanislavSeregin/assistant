@@ -76,7 +76,7 @@ public sealed class TurnSupportAdvisor(StatelessAgent stateless)
 
     public async Task<string> AdviseAsync(
         TurnSupportMode mode,
-        AgentHandle agent,
+        NodeHandle agent,
         int historyStartIndex,
         int attempt,
         CancellationToken cancellationToken)
@@ -118,12 +118,13 @@ public sealed class TurnSupportAdvisor(StatelessAgent stateless)
 
     private static string BuildPackage(
         TurnSupportMode mode,
-        AgentHandle agent,
+        NodeHandle agent,
         int historyStartIndex,
         int attempt)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"attempt={attempt}; agent={agent.Name}; parent={agent.ParentId.Value}");
+        sb.AppendLine(
+            $"attempt={attempt}; agent={agent.Name}; parent={agent.ParentId?.Value ?? "(none)"}");
 
         if (mode == TurnSupportMode.Mail)
         {
@@ -155,7 +156,7 @@ public sealed class TurnSupportAdvisor(StatelessAgent stateless)
         else
         {
             sb.AppendLine($"max_handoff_chars={AgentMailTools.MaxHandoffCharacters}");
-            if (!string.IsNullOrWhiteSpace(agent.ContinuityHandoff))
+            if (!string.IsNullOrWhiteSpace(agent.Llm?.ContinuityHandoff))
             {
                 sb.AppendLine(
                     "Prior committed handoff (previous turns) exists; this turn still needs a new CommitContext.");
@@ -169,12 +170,12 @@ public sealed class TurnSupportAdvisor(StatelessAgent stateless)
     }
 
     private static string FormatTurnHistory(
-        AgentHandle agent,
+        NodeHandle agent,
         int historyStartIndex,
         TurnSupportMode mode)
     {
-        if (agent.Session is null
-            || !agent.Session.TryGetInMemoryChatHistory(out var history)
+        if (agent.Llm?.Session is null
+            || !agent.Llm.Session.TryGetInMemoryChatHistory(out var history)
             || history.Count == 0)
         {
             return "(session history unavailable)";

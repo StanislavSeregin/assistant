@@ -1,7 +1,7 @@
-using Assistant.App.UI.Tui.Compose;
+using Assistant.App.UI.Abstractions;
 using Assistant.App.UI.Tui.Log;
 using Assistant.App.UI.Tui.Shell;
-using Microsoft.Extensions.Options;
+using Assistant.App.UI.Tui.Workspace;
 using Terminal.Gui.App;
 using Terminal.Gui.Configuration;
 
@@ -14,8 +14,8 @@ public sealed class TuiAppUi(
     TuiUiScheduler scheduler,
     CoalescingLogSink logSink,
     LogBuffer logBuffer,
-    MailComposerHub composerHub,
-    IOptions<Settings> settings) : IAppUi
+    IUserWorkspace workspace,
+    IUiScheduler uiScheduler) : IAppUi
 {
     private bool _initialized;
 
@@ -38,11 +38,10 @@ public sealed class TuiAppUi(
         try
         {
             var logPane = new LogPaneView(logBuffer, logSink);
-            var composePane = new ComposePaneView(settings.Value.UserMailSubject);
-            composerHub.Attach(composePane);
-
-            var shell = new AssistantShell(logPane, composePane);
-            composePane.FocusBody();
+            var inboxTab = new InboxTabView(workspace, uiScheduler);
+            var agentsTab = new AgentsTabView(workspace, uiScheduler);
+            var shell = new AssistantShell(logPane, inboxTab, agentsTab);
+            shell.Tabs.SetFocus();
             app.Run(shell);
         }
         finally

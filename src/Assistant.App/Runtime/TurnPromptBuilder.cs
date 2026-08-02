@@ -10,7 +10,7 @@ namespace Assistant.App.Runtime;
 
 internal static class TurnPromptBuilder
 {
-    public static ChatMessage BuildWakeMessage(AgentHandle agent)
+    public static ChatMessage BuildWakeMessage(NodeHandle agent)
     {
         var open = agent.Inbox.List();
         if (open.Count == 0)
@@ -22,13 +22,14 @@ internal static class TurnPromptBuilder
         var sb = new StringBuilder();
         sb.AppendLine("[SYSTEM]");
         sb.AppendLine("Your continuity note from last wake:");
-        if (string.IsNullOrWhiteSpace(agent.ContinuityHandoff))
+        var handoff = agent.Llm?.ContinuityHandoff;
+        if (string.IsNullOrWhiteSpace(handoff))
         {
             sb.AppendLine("(fresh start — nothing saved yet)");
         }
         else
         {
-            sb.AppendLine(agent.ContinuityHandoff.Trim());
+            sb.AppendLine(handoff.Trim());
         }
 
         sb.AppendLine();
@@ -66,7 +67,7 @@ internal static class TurnPromptBuilder
         return new ChatMessage(ChatRole.User, body);
     }
 
-    public static string BuildFallbackMailNotice(AgentHandle agent)
+    public static string BuildFallbackMailNotice(NodeHandle agent)
     {
         var open = agent.Inbox.List();
         var parentMail = open.FirstOrDefault(item => item.IsFromParent) ?? open.FirstOrDefault();

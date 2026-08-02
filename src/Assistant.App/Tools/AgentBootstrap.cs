@@ -15,14 +15,17 @@ public sealed class AgentBootstrap(
     ChatClientFactory chatClientFactory,
     IOptions<Settings> settings)
 {
-    public void Bootstrap(AgentHandle handle)
+    public void Bootstrap(NodeHandle handle)
     {
         BootstrapAsync(handle, CancellationToken.None).GetAwaiter().GetResult();
     }
 
-    public async Task BootstrapAsync(AgentHandle handle, CancellationToken cancellationToken)
+    public async Task BootstrapAsync(NodeHandle handle, CancellationToken cancellationToken)
     {
-        if (handle.Agent is not null)
+        var llm = handle.Llm
+            ?? throw new InvalidOperationException($"Node '{handle.Name}' is not an LLM node.");
+
+        if (llm.Agent is not null)
         {
             return;
         }
@@ -51,7 +54,7 @@ public sealed class AgentBootstrap(
         });
 
         var session = await agent.CreateSessionAsync(cancellationToken);
-        handle.BindSession(agent, session);
+        llm.BindSession(agent, session);
     }
 
     private static AIContextProvider[]? CreateSkillsProviders(Settings settings)
@@ -77,7 +80,7 @@ public sealed class AgentBootstrap(
         ];
     }
 
-    public static string BuildInstructions(AgentHandle handle)
+    public static string BuildInstructions(NodeHandle handle)
     {
         var roleBlock = string.IsNullOrWhiteSpace(handle.Instructions)
             ? string.Empty
@@ -87,9 +90,10 @@ public sealed class AgentBootstrap(
                 {handle.Instructions.Trim()}
                 """;
 
+        var parentName = handle.ParentId?.Value ?? NodeId.User.Value;
         var parentLabel = string.IsNullOrWhiteSpace(handle.ParentDescription)
-            ? handle.ParentId.Value
-            : $"{handle.ParentId.Value} ({handle.ParentDescription.Trim()})";
+            ? parentName
+            : $"{parentName} ({handle.ParentDescription.Trim()})";
 
         return $"""
             You are {handle.Name}. {handle.Description}.{roleBlock}

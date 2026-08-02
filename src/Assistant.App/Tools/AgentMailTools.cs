@@ -15,7 +15,7 @@ namespace Assistant.App.Tools;
 
 public sealed class AgentMailTools(
     MailService mail,
-    AgentRegistry registry,
+    NodeRegistry registry,
     AgentBootstrap bootstrap,
     ILifecycleSink lifecycle)
 {
@@ -34,7 +34,7 @@ public sealed class AgentMailTools(
         nameof(CommitContext)
     ];
 
-    public AITool[] BuildTools(AgentHandle agent, TurnActivity activity) =>
+    public AITool[] BuildTools(NodeHandle agent, TurnActivity activity) =>
     [
         AIFunctionFactory.Create(
             () => GetRecipients(agent),
@@ -94,7 +94,7 @@ public sealed class AgentMailTools(
             nameof(CommitContext))
     ];
 
-    private string GetRecipients(AgentHandle agent)
+    private string GetRecipients(NodeHandle agent)
     {
         var recipients = mail.GetRecipients(agent);
         if (recipients.Count == 0)
@@ -114,7 +114,7 @@ public sealed class AgentMailTools(
         return sb.ToString().TrimEnd();
     }
 
-    private string ListInbox(AgentHandle agent)
+    private string ListInbox(NodeHandle agent)
     {
         var items = mail.ListInbox(agent);
         if (items.Count == 0)
@@ -133,11 +133,11 @@ public sealed class AgentMailTools(
         return sb.ToString().TrimEnd();
     }
 
-    private string ReadMail(AgentHandle agent, string mailId) =>
+    private string ReadMail(NodeHandle agent, string mailId) =>
         mail.ReadMail(agent, mailId);
 
     private string WriteMail(
-        AgentHandle agent,
+        NodeHandle agent,
         TurnActivity activity,
         string to,
         string subject,
@@ -153,7 +153,7 @@ public sealed class AgentMailTools(
     }
 
     private string ReplyMail(
-        AgentHandle agent,
+        NodeHandle agent,
         TurnActivity activity,
         string mailId,
         string body)
@@ -167,7 +167,7 @@ public sealed class AgentMailTools(
         return message;
     }
 
-    private string DeleteMail(AgentHandle agent, TurnActivity activity, string mailId)
+    private string DeleteMail(NodeHandle agent, TurnActivity activity, string mailId)
     {
         var (ok, message) = mail.DeleteMail(agent, mailId);
         if (ok)
@@ -179,7 +179,7 @@ public sealed class AgentMailTools(
     }
 
     private string SpawnSubagent(
-        AgentHandle parent,
+        NodeHandle parent,
         string name,
         string description,
         string instructions,
@@ -202,7 +202,7 @@ public sealed class AgentMailTools(
         }
     }
 
-    private string DisposeSubagent(AgentHandle parent, TurnActivity activity, string name)
+    private string DisposeSubagent(NodeHandle parent, TurnActivity activity, string name)
     {
         try
         {
@@ -227,7 +227,7 @@ public sealed class AgentMailTools(
         }
     }
 
-    private string CommitContext(AgentHandle agent, TurnActivity activity, string handoff)
+    private string CommitContext(NodeHandle agent, TurnActivity activity, string handoff)
     {
         if (!activity.AllowContextCommit)
         {
@@ -247,13 +247,13 @@ public sealed class AgentMailTools(
                    "Please shorten it and call CommitContext again — nothing was cleared yet.";
         }
 
-        if (agent.Session is null)
+        if (agent.Llm?.Session is null)
         {
             return "CommitContext could not run: session is not bound.";
         }
 
-        agent.ContinuityHandoff = text;
-        agent.Session.SetInMemoryChatHistory([]);
+        agent.Llm.ContinuityHandoff = text;
+        agent.Llm.Session.SetInMemoryChatHistory([]);
         activity.MarkContextCommitted();
         lifecycle.Publish(new ContextCommitted(agent.Name, text, text.Length));
         return "Saved. Chat history cleared. Next wake will open with this note, then your inbox.";

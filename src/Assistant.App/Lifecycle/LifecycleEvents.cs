@@ -13,28 +13,28 @@ public enum ToolCallOrigin
     External
 }
 
-public record AgentSpawned(
-    string Agent,
-    string AgentId,
+public record NodeSpawned(
+    string Node,
+    string NodeId,
     string Parent,
     string Description,
     string Instructions,
     string? ParentDescription) : ILifecycleEvent;
 
-public record AgentDisposed(string Agent, string Parent) : ILifecycleEvent;
+public record NodeDisposed(string Node, string Parent) : ILifecycleEvent;
 
-public record TurnStarted(string Agent) : ILifecycleEvent;
+public record TurnStarted(string Node) : ILifecycleEvent;
 
-public record TurnWake(string Agent, string Message) : ILifecycleEvent;
+public record TurnWake(string Node, string Message) : ILifecycleEvent;
 
-public record TurnEnded(string Agent) : ILifecycleEvent;
+public record TurnEnded(string Node) : ILifecycleEvent;
 
-public record ThinkingStarted(string Agent, Guid StreamId) : ILifecycleEvent;
+public record ThinkingStarted(string Node, Guid StreamId) : ILifecycleEvent;
 
-public record ThinkingDelta(string Agent, Guid StreamId, string Text) : ILifecycleEvent;
+public record ThinkingDelta(string Node, Guid StreamId, string Text) : ILifecycleEvent;
 
 public record ThinkingCompleted(
-    string Agent,
+    string Node,
     Guid StreamId,
     long? InputTokens = null) : ILifecycleEvent;
 
@@ -47,7 +47,7 @@ public record MailSent(
     bool IsReply) : ILifecycleEvent;
 
 public record MailReceived(
-    string Agent,
+    string Node,
     string MailId,
     string From,
     string Subject,
@@ -55,34 +55,34 @@ public record MailReceived(
     DateTime Timestamp) : ILifecycleEvent;
 
 public record MailRead(
-    string Agent,
+    string Node,
     string MailId,
     string From,
     string Subject,
     string Body,
     DateTime Timestamp) : ILifecycleEvent;
 
-public record MailReplied(string Agent, string MailId) : ILifecycleEvent;
+public record MailReplied(string Node, string MailId) : ILifecycleEvent;
 
-public record MailDeleted(string Agent, string MailId) : ILifecycleEvent;
+public record MailDeleted(string Node, string MailId) : ILifecycleEvent;
 
-public record MailPurged(string Agent, string FromAgent, int Count) : ILifecycleEvent;
+public record MailPurged(string Node, string FromNode, int Count) : ILifecycleEvent;
 
 public record ToolCalled(
-    string Agent,
+    string Node,
     string ToolName,
     ToolCallOrigin Origin,
     IReadOnlyDictionary<string, string?>? Arguments = null,
     string? CallId = null,
     string? Result = null) : ILifecycleEvent;
 
-public record SupportAdvice(string Agent, string Message) : ILifecycleEvent;
+public record SupportAdvice(string Node, string Message) : ILifecycleEvent;
 
-public record ContextCommitted(string Agent, string Handoff, int HandoffCharacters) : ILifecycleEvent;
+public record ContextCommitted(string Node, string Handoff, int HandoffCharacters) : ILifecycleEvent;
 
-public record ErrorEvent(string Agent, string Message) : ILifecycleEvent;
+public record ErrorEvent(string Node, string Message) : ILifecycleEvent;
 
-public record UsageEvent(string Agent, long InputTokens) : ILifecycleEvent;
+public record UsageEvent(string Node, long InputTokens) : ILifecycleEvent;
 
 public sealed class LifecycleDrainBarrier : ILifecycleEvent
 {

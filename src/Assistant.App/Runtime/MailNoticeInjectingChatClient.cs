@@ -13,7 +13,7 @@ namespace Assistant.App.Runtime;
 /// Injects pending mail notices as a system message before every model call,
 /// which sits under FunctionInvokingChatClient and therefore runs between logical blocks.
 /// </summary>
-internal sealed class MailNoticeInjectingChatClient(IChatClient inner, AgentHandle agent)
+internal sealed class MailNoticeInjectingChatClient(IChatClient inner, NodeHandle agent)
     : DelegatingChatClient(inner)
 {
     public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
@@ -36,7 +36,7 @@ internal sealed class MailNoticeInjectingChatClient(IChatClient inner, AgentHand
 
     private IEnumerable<ChatMessage> InjectNotices(IEnumerable<ChatMessage> messages)
     {
-        var notices = agent.DrainPendingMailNotices();
+        var notices = agent.Llm?.DrainPendingMailNotices() ?? [];
         if (notices.Count == 0)
         {
             return messages;

@@ -8,28 +8,31 @@ using System.Threading;
 namespace Assistant.App.Mail;
 
 public sealed class MailService(
-    AgentRegistry registry,
+    NodeRegistry registry,
     ILifecycleSink lifecycle)
 {
     private long _mailSeq;
 
-    public IReadOnlyList<(string Name, string Role, bool IsParent)> GetRecipients(AgentHandle agent)
+    public IReadOnlyList<(string Name, string Role, bool IsParent)> GetRecipients(NodeHandle node)
     {
         var list = new List<(string, string, bool)>();
 
-        if (agent.ParentId.IsUser)
+        if (node.ParentId is { } parentId)
         {
-            list.Add((
-                AgentId.User.Value,
-                agent.ParentDescription ?? "User",
-                true));
-        }
-        else if (registry.TryGet(agent.ParentId, out var parent))
-        {
-            list.Add((parent.Name, parent.Description, true));
+            if (parentId.IsUser)
+            {
+                list.Add((
+                    NodeId.User.Value,
+                    node.ParentDescription ?? "User",
+                    true));
+            }
+            else if (registry.TryGet(parentId, out var parent))
+            {
+                list.Add((parent.Name, parent.Description, true));
+            }
         }
 
-        foreach (var (name, childId) in agent.ChildrenByName.OrderBy(p => p.Key, StringComparer.Ordinal))
+        foreach (var (name, childId) in node.ChildrenByName.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             if (registry.TryGet(childId, out var child))
             {
@@ -44,18 +47,18 @@ public sealed class MailService(
         return list;
     }
 
-    public IReadOnlyList<InboxItem> ListInbox(AgentHandle agent) => agent.Inbox.List();
+    public IReadOnlyList<InboxItem> ListInbox(NodeHandle node) => node.Inbox.List();
 
-    public string ReadMail(AgentHandle agent, string mailId)
+    public string ReadMail(NodeHandle node, string mailId)
     {
-        var message = agent.Inbox.FindAndMarkRead(mailId);
+        var message = node.Inbox.FindAndMarkRead(mailId);
         if (message is null)
         {
             return $"Mail '{mailId}' not found.";
         }
 
         lifecycle.Publish(new MailRead(
-            agent.Name,
+            node.Name,
             message.Id,
             message.From,
             message.Subject,
@@ -72,7 +75,9 @@ public sealed class MailService(
             """;
     }
 
-    public (bool Ok, string Message) WriteMail(AgentHandle from, string toName, string subject, string body)
+    public MailMessage? TryGetMail(NodeHandle node, string mailId) => node.Inbox.Find(mailId);
+
+    public (bool Ok, string Message) WriteMail(NodeHandle from, string toName, string subject, string body)
     {
         toName = toName.Trim();
         subject = subject.Trim();
@@ -109,7 +114,7 @@ public sealed class MailService(
         return (true, Deliver(from, toId, toName, mail, isReply: false));
     }
 
-    public (bool Ok, string Message) ReplyMail(AgentHandle from, string mailId, string body)
+    public (bool Ok, string Message) ReplyMail(NodeHandle from, string mailId, string body)
     {
         body = body.Trim();
         if (string.IsNullOrWhiteSpace(body))
@@ -150,57 +155,27 @@ public sealed class MailService(
         return (true, Deliver(from, toId, original.From, mail, isReply: true));
     }
 
-    public (bool Ok, string Message) DeleteMail(AgentHandle agent, string mailId)
+    public (bool Ok, string Message) DeleteMail(NodeHandle node, string mailId)
     {
-        if (!agent.Inbox.TryRemove(mailId, out _))
+        if (!node.Inbox.TryRemove(mailId, out _))
         {
             return (false, $"Mail '{mailId}' not found.");
         }
 
-        lifecycle.Publish(new MailDeleted(agent.Name, mailId));
+        lifecycle.Publish(new MailDeleted(node.Name, mailId));
         return (true, $"Deleted mail '{mailId}' from inbox.");
     }
 
-    public string WriteFromUser(string body, string subject)
-    {
-        var root = registry.Root
-            ?? throw new InvalidOperationException("Root agent is not registered.");
-
-        body = body.Trim();
-        if (string.IsNullOrWhiteSpace(body))
-        {
-            return "Body is empty.";
-        }
-
-        var mail = CreateMail(
-            AgentId.User.Value,
-            root.Name,
-            subject.Trim(),
-            body,
-            isFromParent: true,
-            threadId: Guid.NewGuid());
-
-        DeliverToAgent(root, mail);
-        lifecycle.Publish(new MailSent(
-            AgentId.User.Value,
-            root.Name,
-            mail.Id,
-            mail.Subject,
-            mail.Body,
-            IsReply: false));
-        return mail.Id;
-    }
-
-    public int PurgeMailFrom(AgentHandle agent, IEnumerable<string> fromNames)
+    public int PurgeMailFrom(NodeHandle node, IEnumerable<string> fromNames)
     {
         var total = 0;
         foreach (var name in fromNames.Distinct(StringComparer.Ordinal))
         {
-            var count = agent.Inbox.PurgeFrom(name);
+            var count = node.Inbox.PurgeFrom(name);
             if (count > 0)
             {
                 total += count;
-                lifecycle.Publish(new MailPurged(agent.Name, name, count));
+                lifecycle.Publish(new MailPurged(node.Name, name, count));
             }
         }
 
@@ -208,40 +183,27 @@ public sealed class MailService(
     }
 
     private string Deliver(
-        AgentHandle from,
-        AgentId toId,
+        NodeHandle from,
+        NodeId toId,
         string toName,
         MailMessage mail,
         bool isReply)
     {
         lifecycle.Publish(new MailSent(from.Name, toName, mail.Id, mail.Subject, mail.Body, isReply));
 
-        if (toId.IsUser)
-        {
-            // User bridge observes MailSent; nothing to inbox.
-            return isReply
-                ? $"Reply delivered to '{toName}', mailId={mail.Id}."
-                : $"Sent to '{toName}', mailId={mail.Id}.";
-        }
-
-        if (!registry.TryGet(toId, out var to))
+        if (!registry.TryGet(toId, out var to) || to.IsDisposed)
         {
             return $"Recipient '{toName}' is gone.";
         }
 
-        DeliverToAgent(to, mail);
+        DeliverToNode(to, mail);
         return isReply
             ? $"Reply delivered to '{toName}', mailId={mail.Id}."
             : $"Sent to '{toName}', mailId={mail.Id}.";
     }
 
-    private void DeliverToAgent(AgentHandle to, MailMessage mail)
+    private void DeliverToNode(NodeHandle to, MailMessage mail)
     {
-        if (to.State == AgentRunState.Disposed)
-        {
-            return;
-        }
-
         to.Inbox.Add(mail);
         lifecycle.Publish(new MailReceived(
             to.Name,
@@ -251,14 +213,20 @@ public sealed class MailService(
             mail.IsFromParent,
             mail.Timestamp));
 
-        var notice = new MailNotice(mail.Id, mail.Timestamp, mail.From, mail.Subject, mail.IsFromParent);
-        if (to.State == AgentRunState.Running)
+        if (to.Llm is null)
         {
-            to.EnqueueMailNotice(notice);
+            // Human (and other non-LLM) nodes: inbox + event only; UI reacts.
+            return;
+        }
+
+        var notice = new MailNotice(mail.Id, mail.Timestamp, mail.From, mail.Subject, mail.IsFromParent);
+        if (to.Llm.State == NodeRunState.Running)
+        {
+            to.Llm.EnqueueMailNotice(notice);
         }
         else
         {
-            to.RequestWake();
+            to.Llm.RequestWake();
         }
     }
 
@@ -285,28 +253,31 @@ public sealed class MailService(
     }
 
     private bool TryResolveRecipient(
-        AgentHandle from,
+        NodeHandle from,
         string toName,
-        out AgentId toId,
+        out NodeId toId,
         out string error)
     {
         toId = default;
         error = string.Empty;
         toName = toName.Trim();
 
-        if (from.ParentId.IsUser
-            && string.Equals(toName, AgentId.User.Value, StringComparison.Ordinal))
+        if (from.ParentId is { } parentId)
         {
-            toId = AgentId.User;
-            return true;
-        }
+            if (parentId.IsUser
+                && string.Equals(toName, NodeId.User.Value, StringComparison.Ordinal))
+            {
+                toId = NodeId.User;
+                return true;
+            }
 
-        if (!from.ParentId.IsUser
-            && registry.TryGet(from.ParentId, out var parent)
-            && string.Equals(toName, parent.Name, StringComparison.Ordinal))
-        {
-            toId = parent.Id;
-            return true;
+            if (!parentId.IsUser
+                && registry.TryGet(parentId, out var parent)
+                && string.Equals(toName, parent.Name, StringComparison.Ordinal))
+            {
+                toId = parent.Id;
+                return true;
+            }
         }
 
         if (from.ChildrenByName.TryGetValue(toName, out var childId))
@@ -317,27 +288,19 @@ public sealed class MailService(
 
         error =
             $"Recipient '{toName}' is not addressable. " +
-            "You may only mail your parent and direct subagents.";
+            "You may only mail your parent and direct children.";
         return false;
     }
 
-    private string ResolveDisplayName(AgentId id, string fallback)
+    private string ResolveDisplayName(NodeId id, string fallback)
     {
-        if (id.IsUser)
-        {
-            return AgentId.User.Value;
-        }
-
         return registry.TryGet(id, out var handle) ? handle.Name : fallback;
     }
 
-    private bool IsParentOf(AgentId fromId, AgentId toId)
+    private bool IsParentOf(NodeId fromId, NodeId toId)
     {
-        if (toId.IsUser)
-        {
-            return false;
-        }
-
-        return registry.TryGet(toId, out var to) && to.ParentId.Equals(fromId);
+        return registry.TryGet(toId, out var to)
+            && to.ParentId is { } parentId
+            && parentId.Equals(fromId);
     }
 }

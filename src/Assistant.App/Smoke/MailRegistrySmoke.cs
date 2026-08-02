@@ -15,21 +15,27 @@ public static class MailRegistrySmoke
     public static async Task<int> RunAsync()
     {
         var channel = new LifecycleEventChannel();
-        var registry = new AgentRegistry(channel);
+        var registry = new NodeRegistry(channel);
         var mail = new MailService(registry, channel);
 
-        var root = registry.RegisterRoot("Secretary", "Manager", string.Empty, "Director");
+        var user = registry.RegisterUser("Director");
+        var root = registry.SpawnChild(user, "Secretary", "Manager", string.Empty, "Director");
         var child = registry.SpawnChild(root, "Coder", "Writes code", "Be brief", "Manager");
 
-        if (child.State != AgentRunState.Idle)
+        if (child.State != NodeRunState.Idle)
         {
             Fail("spawn should leave child Idle");
         }
 
-        mail.WriteFromUser("Please investigate flaky tests", "User request");
+        var (okUser, userMsg) = mail.WriteMail(user, "Secretary", "User request", "Please investigate flaky tests");
+        if (!okUser)
+        {
+            Fail(userMsg);
+        }
+
         if (!root.Inbox.HasMail())
         {
-            Fail("root should have user mail");
+            Fail("secretary should have user mail");
         }
 
         var (okWrite, writeMsg) = mail.WriteMail(root, "Coder", "Flaky tests", "Find and fix the flake.");
@@ -43,8 +49,7 @@ public static class MailRegistrySmoke
             Fail("child should have mail from parent");
         }
 
-        // Child was Idle → should have a wake signal
-        if (!child.WakeChannel.Reader.TryRead(out _))
+        if (child.Llm is null || !child.Llm.WakeChannel.Reader.TryRead(out _))
         {
             Fail("child should be woken by mail");
         }
@@ -76,17 +81,35 @@ public static class MailRegistrySmoke
 
         if (!root.Inbox.HasMail())
         {
-            Fail("root should receive child reply as inbox mail");
+            Fail("secretary should receive child reply as inbox mail");
         }
 
+        if (!user.Inbox.HasMail())
+        {
+            // Child replied to secretary, not user — user only has nothing new from this reply.
+        }
+
+        // Secretary replies to user mail
         var userMailId = mail.ListInbox(root).First(item => item.From == "User").Id;
-        var (okDelete, deleteMsg) = mail.DeleteMail(root, userMailId);
+        var (okReplyUser, replyUserMsg) = mail.ReplyMail(root, userMailId, "Looking into it.");
+        if (!okReplyUser)
+        {
+            Fail(replyUserMsg);
+        }
+
+        if (!user.Inbox.HasMail())
+        {
+            Fail("user should receive secretary reply in inbox");
+        }
+
+        var replyToUserId = mail.ListInbox(user)[0].Id;
+        var (okDelete, deleteMsg) = mail.DeleteMail(user, replyToUserId);
         if (!okDelete)
         {
             Fail(deleteMsg);
         }
 
-        if (mail.ListInbox(root).Any(item => item.Id == userMailId))
+        if (mail.ListInbox(user).Any(item => item.Id == replyToUserId))
         {
             Fail("deleted user mail should be gone");
         }
@@ -98,8 +121,7 @@ public static class MailRegistrySmoke
         }
 
         mail.PurgeMailFrom(root, ["Coder"]);
-        var fromCoder = root.Inbox.List();
-        foreach (var item in fromCoder)
+        foreach (var item in root.Inbox.List())
         {
             if (item.From == "Coder")
             {
@@ -107,27 +129,27 @@ public static class MailRegistrySmoke
             }
         }
 
-        // Mid-turn notice path: Running agent gets notice instead of wake
         var researcher = registry.SpawnChild(root, "Researcher", "Researches", "Be brief", "Manager");
-        if (!researcher.TryBeginRun())
+        if (researcher.Llm is null || !researcher.Llm.TryBeginRun())
         {
             Fail("researcher should begin run");
         }
 
         mail.WriteMail(root, "Researcher", "Topic", "Look into X");
-        var notices = researcher.DrainPendingMailNotices();
+        var notices = researcher.Llm!.DrainPendingMailNotices();
         if (notices.Count != 1)
         {
             Fail("running agent should get mid-turn mail notice");
         }
 
-        if (researcher.WakeChannel.Reader.TryRead(out _))
+        if (researcher.Llm.WakeChannel.Reader.TryRead(out _))
         {
             Fail("running agent should not be woken again");
         }
 
-        researcher.EndRun();
+        researcher.Llm.EndRun();
         Console.WriteLine("MailRegistrySmoke: OK");
+        await Task.CompletedTask;
         return 0;
     }
 
