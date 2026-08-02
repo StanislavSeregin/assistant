@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace Assistant.App.UI.Console;
+namespace Assistant.App.UI.Formatting;
 
 public static class UsageFormatter
 {

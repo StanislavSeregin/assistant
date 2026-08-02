@@ -37,12 +37,18 @@ public class Program
             .ConfigureServices((context, services) =>
             {
                 services.AddAssistantCore(context.Configuration);
-                services.AddSpectreConsoleUi();
+                services.AddTerminalGuiUi();
             });
 
         var host = builder.Build();
-        // Banner before hosted services so AgentSpawned etc. cannot flash then get cleared.
-        host.Services.GetRequiredService<IAppUi>().Initialize();
-        await host.RunAsync();
+        await host.StartAsync();
+        try
+        {
+            host.Services.GetRequiredService<IAppUi>().Run();
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
     }
 }

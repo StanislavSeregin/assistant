@@ -3,15 +3,12 @@ using System.Threading.Tasks;
 
 namespace Assistant.App.UI;
 
-public interface IUserInput
-{
-    Task<string> ReadAsync(CancellationToken cancellationToken);
-}
-
 /// <summary>
-/// UI host lifecycle (banner / theme / setup) separate from input.
+/// UI host lifecycle. <see cref="Run"/> owns the interactive session (blocks until quit).
 /// </summary>
 public interface IAppUi
 {
     void Initialize();
+
+    void Run();
 }

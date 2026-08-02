@@ -1,76 +1,28 @@
 using Assistant.App.Lifecycle;
 using Assistant.App.Mail;
-using Spectre.Console;
+using Assistant.App.UI.Abstractions;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
-namespace Assistant.App.UI.Console;
+namespace Assistant.App.UI.Formatting;
 
-public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHandler
+/// <summary>
+/// Maps lifecycle events to <see cref="ILogSink"/> calls.
+/// Toolkit-free: swap Spectre/TUI/etc. by swapping the sink.
+/// </summary>
+public sealed class LifecycleLogPresenter
 {
+    private readonly ILogSink _log;
     private readonly Dictionary<Guid, ActiveStream> _streams = [];
     private readonly HashSet<Guid> _activeThinking = [];
-    private readonly List<LifecycleDrainBarrier> _pendingDrains = [];
-    private bool _holdingGate;
+
+    public LifecycleLogPresenter(ILogSink log) => _log = log;
+
+    public bool HasActiveThinking => _activeThinking.Count > 0;
 
     public void Handle(ILifecycleEvent lifecycleEvent)
-    {
-        if (!_holdingGate)
-        {
-            gate.Enter();
-            _holdingGate = true;
-        }
-
-        try
-        {
-            Write(lifecycleEvent);
-        }
-        finally
-        {
-            ReleaseGateIfIdle();
-        }
-    }
-
-    public void CompleteWhenIdle(LifecycleDrainBarrier barrier)
-    {
-        if (_holdingGate || _activeThinking.Count > 0)
-        {
-            _pendingDrains.Add(barrier);
-            return;
-        }
-
-        barrier.Complete();
-    }
-
-    private void ReleaseGateIfIdle()
-    {
-        if (_activeThinking.Count > 0)
-        {
-            return;
-        }
-
-        if (_holdingGate)
-        {
-            _holdingGate = false;
-            gate.Exit();
-        }
-
-        if (_pendingDrains.Count == 0)
-        {
-            return;
-        }
-
-        foreach (var barrier in _pendingDrains)
-        {
-            barrier.Complete();
-        }
-
-        _pendingDrains.Clear();
-    }
-
-    private void Write(ILifecycleEvent lifecycleEvent)
     {
         switch (lifecycleEvent)
         {
@@ -92,8 +44,6 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
                 WriteMailRead(e);
                 break;
             case ToolCalled e:
-                // ReadMail is logged via MailRead with full content.
-                // CommitContext is logged via ContextCommitted.
                 if (e.ToolName is "ReadMail" or "CommitContext")
                 {
                     break;
@@ -101,40 +51,37 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
 
                 PauseThinking(e.Agent);
                 WriteNotice(
-                    $"[grey]{Markup.Escape(e.Agent)} · {Markup.Escape(FormatToolHeader(e))}[/]",
+                    $"{e.Agent} · {FormatToolHeader(e)}",
                     FormatToolBody(e),
-                    "grey");
+                    LogTone.Grey);
                 break;
             case ContextCommitted e:
                 PauseThinking(e.Agent);
                 WriteNotice(
-                    $"[magenta]{Markup.Escape(e.Agent)} · CommitContext[/]",
+                    $"{e.Agent} · CommitContext",
                     e.Handoff,
-                    "magenta",
+                    LogTone.Magenta,
                     writeFooter: false);
                 break;
             case TurnWake e:
-                WriteNotice($"[grey]{Markup.Escape(e.Agent)} · wake[/]", e.Message, "grey");
+                WriteNotice($"{e.Agent} · wake", e.Message, LogTone.Grey);
                 break;
             case SupportAdvice e:
                 PauseThinking(e.Agent);
-                WriteNotice($"[yellow]{Markup.Escape(e.Agent)} · support[/]", e.Message, "yellow");
+                WriteNotice($"{e.Agent} · support", e.Message, LogTone.Yellow);
                 break;
             case ErrorEvent e:
                 PauseThinking(e.Agent);
-                WriteNotice($"[red]{Markup.Escape(e.Agent)} · error[/]", e.Message, "red");
+                WriteNotice($"{e.Agent} · error", e.Message, LogTone.Red);
                 break;
             case AgentSpawned e:
                 WriteNotice(
-                    $"[blue]{Markup.Escape(e.Parent)} -> {Markup.Escape(e.Agent)} · spawn[/]",
+                    $"{e.Parent} -> {e.Agent} · spawn",
                     FormatSpawn(e),
-                    "blue");
+                    LogTone.Blue);
                 break;
             case AgentDisposed e:
-                WriteNotice(
-                    $"[blue]{Markup.Escape(e.Parent)} -> {Markup.Escape(e.Agent)} · dispose[/]",
-                    null,
-                    "blue");
+                WriteNotice($"{e.Parent} -> {e.Agent} · dispose", null, LogTone.Blue);
                 break;
             case UsageEvent e:
                 PauseThinking(e.Agent);
@@ -145,38 +92,33 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
 
     private void WriteMail(MailSent e)
     {
-        var time = DateTime.Now;
         var isForUser = e.To == "User";
         var header = isForUser
-            ? $"[bold green]{Markup.Escape(e.From)} -> You · mail[/]"
-            : $"[cyan]{Markup.Escape(e.From)} -> {Markup.Escape(e.To)} · {(e.IsReply ? "reply" : "mail")}[/]";
+            ? $"{e.From} -> You · mail"
+            : $"{e.From} -> {e.To} · {(e.IsReply ? "reply" : "mail")}";
+        var headerTone = isForUser ? LogTone.BoldGreen : LogTone.Cyan;
+        var bodyTone = isForUser ? LogTone.BoldWhite : LogTone.Yellow;
 
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule($"{header} [grey][[{time:HH:mm:ss}]][/]").LeftJustified());
-        AnsiConsole.MarkupLine($"[grey]id: {Markup.Escape(e.MailId)}[/]");
-        AnsiConsole.MarkupLine($"[grey]{Markup.Escape(e.Subject)}[/]");
+        _log.BlankLine();
+        _log.Header(header, headerTone, DateTime.Now);
+        _log.BodyLine($"id: {e.MailId}", LogTone.Grey);
+        _log.BodyLine(e.Subject, LogTone.Grey);
         foreach (var line in e.Body.ReplaceLineEndings("\n").Split('\n'))
         {
-            var style = isForUser ? "bold white" : "yellow";
-            AnsiConsole.MarkupLine($"[{style}]{Markup.Escape(line)}[/]");
+            _log.BodyLine(line, bodyTone);
         }
 
-        WriteBlockFooter();
+        _log.Footer();
     }
 
-    private static void WriteMailRead(MailRead e)
+    private void WriteMailRead(MailRead e)
     {
-        var time = DateTime.Now;
-        var header =
-            $"[grey]{Markup.Escape(e.Agent)} · ReadMail[/] " +
-            $"[grey]from {Markup.Escape(e.From)}[/]";
-
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule($"{header} [grey][[{time:HH:mm:ss}]][/]").LeftJustified());
-        AnsiConsole.MarkupLine($"[grey]id: {Markup.Escape(e.MailId)}[/]");
-        AnsiConsole.MarkupLine($"[grey]time: {MailTimestamp.FormatUtc(e.Timestamp)}[/]");
-        AnsiConsole.MarkupLine($"[grey]{Markup.Escape(e.Subject)}[/]");
-        WriteBlockFooter();
+        _log.BlankLine();
+        _log.Header($"{e.Agent} · ReadMail from {e.From}", LogTone.Grey, DateTime.Now);
+        _log.BodyLine($"id: {e.MailId}", LogTone.Grey);
+        _log.BodyLine($"time: {MailTimestamp.FormatUtc(e.Timestamp)}", LogTone.Grey);
+        _log.BodyLine(e.Subject, LogTone.Grey);
+        _log.Footer();
     }
 
     private static string FormatToolHeader(ToolCalled toolCall)
@@ -198,7 +140,6 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
 
     private static string? FormatToolBody(ToolCalled toolCall)
     {
-        // Skill tools: name is in the header; skip dumping skill content into the console.
         if (IsSkillTool(toolCall.ToolName))
         {
             return null;
@@ -217,10 +158,7 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
     private static bool IsSkillTool(string toolName) =>
         toolName is "load_skill" or "read_skill_resource" or "run_skill_script";
 
-    private static bool TryGetArgument(
-        ToolCalled toolCall,
-        string key,
-        out string value)
+    private static bool TryGetArgument(ToolCalled toolCall, string key, out string value)
     {
         value = string.Empty;
         if (toolCall.Arguments is null
@@ -260,31 +198,13 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
             return;
         }
 
-        if (!_streams.TryGetValue(streamId, out var stream))
+        if (!_streams.ContainsKey(streamId))
         {
             OpenThinking(streamId, agent);
-            stream = _streams[streamId];
         }
 
-        WriteStyledChunk("grey italic", text);
-        stream.HasOpenStyle = true;
-    }
-
-    private static void WriteStyledChunk(string style, string text)
-    {
-        var parts = text.ReplaceLineEndings("\n").Split('\n');
-        for (var i = 0; i < parts.Length; i++)
-        {
-            if (parts[i].Length > 0)
-            {
-                AnsiConsole.Markup($"[{style}]{Markup.Escape(parts[i])}[/]");
-            }
-
-            if (i < parts.Length - 1)
-            {
-                AnsiConsole.WriteLine();
-            }
-        }
+        _log.AppendInline(text, LogTone.GreyItalic);
+        _streams[streamId].HasOpenStyle = true;
     }
 
     private void OpenThinking(Guid streamId, string? agent)
@@ -292,10 +212,8 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
         _activeThinking.Add(streamId);
         var displayedAt = DateTime.Now;
         _streams[streamId] = new ActiveStream(agent, displayedAt);
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule(
-            $"[grey]{Markup.Escape(agent ?? "?")} · thinking[/] [grey][[{displayedAt:HH:mm:ss}]][/]")
-            .LeftJustified());
+        _log.BlankLine();
+        _log.Header($"{agent ?? "?"} · thinking", LogTone.Grey, displayedAt);
     }
 
     private void CompleteStream(Guid streamId, long? inputTokens)
@@ -327,52 +245,43 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
 
         if (stream.HasOpenStyle)
         {
-            AnsiConsole.WriteLine();
+            _log.AppendInline("\n", LogTone.GreyItalic);
         }
 
         var ended = DateTime.Now;
         var seconds = (ended - stream.StartedAt).TotalSeconds.ToString("F1", CultureInfo.InvariantCulture);
         var usage = UsageFormatter.Format(inputTokens);
         var footer = string.IsNullOrEmpty(usage)
-            ? $"[grey](took {seconds}s)[/]"
-            : $"[grey](took {seconds}s. {usage})[/]";
-        WriteBlockFooter(footer);
+            ? $"(took {seconds}s)"
+            : $"(took {seconds}s. {usage})";
+        _log.Footer(footer);
         return true;
     }
 
-    private static void WriteNotice(
-        string headerMarkup,
+    private void WriteNotice(
+        string header,
         string? body,
-        string bodyStyle,
+        LogTone bodyTone,
         bool writeFooter = true)
     {
-        var time = DateTime.Now;
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Rule($"{headerMarkup} [grey][[{time:HH:mm:ss}]][/]").LeftJustified());
+        _log.BlankLine();
+        _log.Header(header, bodyTone, DateTime.Now);
 
         if (!string.IsNullOrEmpty(body))
         {
             foreach (var line in body.ReplaceLineEndings("\n").Split('\n'))
             {
-                AnsiConsole.MarkupLine($"[{bodyStyle}]{Markup.Escape(line)}[/]");
+                _log.BodyLine(line, bodyTone);
             }
         }
 
         if (writeFooter)
         {
-            WriteBlockFooter();
+            _log.Footer();
         }
     }
 
-    private static void WriteBlockFooter(string? titleMarkup = null)
-    {
-        AnsiConsole.Write(
-            string.IsNullOrEmpty(titleMarkup)
-                ? new Rule()
-                : new Rule(titleMarkup).RightJustified());
-    }
-
-    private static void WriteUsage(UsageEvent message)
+    private void WriteUsage(UsageEvent message)
     {
         var usage = UsageFormatter.Format(message.InputTokens);
         if (string.IsNullOrEmpty(usage))
@@ -380,8 +289,7 @@ public sealed class SpectreLifecycleOutput(ConsoleGate gate) : ILifecycleEventHa
             return;
         }
 
-        AnsiConsole.Write(new Rule(
-            $"[grey]{Markup.Escape(message.Agent)} · {usage}[/]").RightJustified());
+        _log.Footer($"{message.Agent} · {usage}");
     }
 
     private sealed class ActiveStream(string? agent, DateTime startedAt)
