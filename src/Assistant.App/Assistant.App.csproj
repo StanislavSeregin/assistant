@@ -4,7 +4,7 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <UserSecretsId>d9e2a160-babc-4c75-a2be-af79c8824e67</UserSecretsId>
+    <UserSecretsId>a7c2e4f1-9b3d-4e8a-91c0-5f6d2b8a1e03</UserSecretsId>
     <NoWarn>$(NoWarn);SCME0001</NoWarn>
   </PropertyGroup>
 
@@ -13,7 +13,6 @@
     <PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.15.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.5" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="10.0.5" />
-    <PackageReference Include="Proto.Actor" Version="1.8.0" />
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
   </ItemGroup>
 

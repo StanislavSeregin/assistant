@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace Assistant.App;
 
@@ -14,13 +14,20 @@ public class Settings
 
     public TimeSpan NetworkTimeout { get; set; } = TimeSpan.FromMinutes(15);
 
-    public TimeSpan ReplyTimeout { get; set; } = TimeSpan.FromMinutes(20);
-
-    public bool EnableSnapshotCompaction { get; set; }
-
-    public int SnapshotCompactionMaxOutputTokens { get; set; } = 16_384;
-
     public bool EnableAgentSkills { get; set; } = true;
 
     public string SkillsPath { get; set; } = "skills";
+
+    public string RootName { get; set; } = "Secretary";
+
+    public string RootDescription { get; set; } = "Manager";
+
+    public string RootInstructions { get; set; } =
+        "Organize the execution of the user's tasks.";
+
+    public string UserDisplayName { get; set; } = "User";
+
+    public string UserDescription { get; set; } = "Director";
+
+    public string UserMailSubject { get; set; } = "User request";
 }

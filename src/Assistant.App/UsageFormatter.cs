@@ -4,21 +4,23 @@ namespace Assistant.App;
 
 public static class UsageFormatter
 {
-    public static string? Format(long? inputTokens)
+    public static string Format(long? inputTokens)
     {
-        if (inputTokens is null)
+        if (inputTokens is not long tokens)
         {
-            return null;
+            return string.Empty;
         }
 
-        return $"ctx {FormatK(inputTokens.Value)}";
+        return $"in {FormatCompactNumber(tokens)}";
     }
 
-    private static string FormatK(long tokens)
+    public static string FormatCompactNumber(long value)
     {
-        var k = tokens / 1024d;
-        return tokens % 1024 == 0
-            ? string.Create(CultureInfo.InvariantCulture, $"{k:0}k")
-            : string.Create(CultureInfo.InvariantCulture, $"{k:0.#}k");
+        if (value < 1000)
+        {
+            return value.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return (value / 1000d).ToString("0.#", CultureInfo.InvariantCulture) + "k";
     }
 }

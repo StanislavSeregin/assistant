@@ -1,60 +1,93 @@
 ---
 name: subagent-management
 description: >-
-  REQUIRED before any subagent collaboration (SpawnSubagent / MessageSubagent /
-  DisposeSubagent). Manager's cheat sheet: briefing (description = role, message =
-  task), trust/delegation, Intermediate vs Final, dispose, and finishing the turn
-  after assigning work — subagents report back themselves; do not micromanage or
-  wait-loop in the same turn.
+  REQUIRED before any subagent collaboration (SpawnSubagent, WriteMail/ReplyMail to
+  children, DisposeSubagent). Manager's cheat sheet: solve the parent's ask; brief
+  and delegate via mail; identity vs task; when to dispose.
 ---
 
 # Subagent Management
 
-Load this skill **before** working with subagents — hiring, messaging, or disposing them.
+Load this skill **before** working with subagents — hiring, briefing, answering, or disposing them.
+
+**Goal:** solve your parent's ask. Mail is how you assign work and report results.
 
 You manage **only direct children**. Grandchildren are invisible on purpose — trust reports to hire their own teams.
+
+## Hard rule
+
+`SpawnSubagent` creates a person. It does **not** assign work.
+The current ask always goes in a **separate** `WriteMail` after spawn.
+Putting the ask in `description` or `instructions` is wrong.
+
+**Litmus test:** would this text still fit if you mailed them a *different* task next turn?
+- Yes → ok for `description` / `instructions`
+- No → put it in `WriteMail`
 
 ## Briefing fields (do not mix)
 
 | Field | Put here | Never put here |
 |-------|----------|----------------|
-| `description` | Stable specialty / duty (“who they are”) | The current task text |
-| `instructions` | Standing style and constraints | The one-off assignment |
-| `message` | **This** concrete task | Role biography |
+| `description` | Stable specialty / duty (“who they are”) | Numbers, deadlines, this turn’s ask |
+| `instructions` | Standing style and constraints | Steps for this one ask |
+| `parentRole` | Your duty as their manager (shown to the child) | Your name, or the child’s assignment |
 
-**Good**
-- description: `Investigates runtime failures and proposes minimal fixes`
-- instructions: `Prefer evidence over guesses. Ask via Intermediate when blocked. Keep Final actionable.`
-- message: `Auth middleware returns 401 on refresh tokens older than 7 days — find cause and fix.`
+**Good** (user asks: pick a number 1–10)
 
-**Bad**
-- description: `Find why auth returns 401 and fix it` ← that is a `message`, not a role
+```
+SpawnSubagent(
+  name: NumberPicker,
+  description: Picks numbers when asked,
+  instructions: Reply by mail only. Be brief.,
+  parentRole: Manager)
+WriteMail(to=NumberPicker, subject=Pick a number,
+  body=Pick any integer from 1 to 10 inclusive and reply with just the number.)
+```
 
-Reuse an Idle specialist with `MessageSubagent` instead of spawning a near-duplicate for every task.
+**Bad** (same ask — do not do this)
 
-## After assign — let them work
+```
+description: Chooses a random number 1–10 and reports it to the manager
+instructions: Pick 1–10, mail subject "Chosen number", body = the number. Then stop.
+```
 
-Typical pattern this turn:
+That whole ask belongs in `WriteMail`; spawn fields must stay reusable for later mails.
 
-1. Spawn/Message everyone you need (fan-out is fine).
-2. Optionally `RespondToParent(Intermediate, …)`.
-3. **Stop.** Subagents will report Intermediate/Final on their own; those replies arrive later as incoming messages.
-4. If you need a roster check, do it on a **later** turn — not in a wait-loop right after spawn.
+Also bad:
+- description: `Find why auth returns 401 and fix it` ← mail body
+- parentRole: `Secretary` ← your *name*; the child already knows it. Use your role (`Manager`, …)
 
-Micromanaging InProgress children (repeated `ListSubagents`, nagging follow-ups) usually slows everyone down. Trust the handoff.
+## After spawn
+
+1. Spawn everyone you need (fan-out is fine).
+2. `WriteMail` each with the concrete ask.
+3. Optionally update your parent on progress.
+4. **Stop.** Subagents mail you back on their own.
 
 ## Delegation
 
 - Fan out independent work; do not serialize without reason.
 - You cannot see or message grandchildren.
-- Do not micromanage internals while a child is InProgress.
+- Free text is not a reply — only `ReplyMail` / `WriteMail` reach people.
 
-## Progress vs done
+## Patterns
 
-- `RespondToParent(Intermediate)` — status/questions; assignment stays open; does not forcibly end the turn.
-- `RespondToParent(Final)` — complete answer only; blocked while any direct child is InProgress; ends the turn.
-- Ending a turn with InProgress children (no Final yet) is correct and expected.
+**Done — report upward** (one turn):
+
+1. `ReadMail` the child’s result  
+2. `ReplyMail` / `WriteMail` your parent with the outcome  
+3. `DisposeSubagent` if their work is finished (keeps them if you still need them)  
+4. **Stop**
+
+**Child asked a clarifying question** (one turn):
+
+1. `ReadMail`  
+2. `ReplyMail` with the answer  
+3. Optionally update your parent about the delay  
+4. **Stop** — keep the child
+
+**Parent ask fully done:** `ReplyMail` with the outcome. That *is* the work.
 
 ## Dispose
 
-Kills the child **and its subtree**. Prefer Final → Idle → dispose (or reuse via `MessageSubagent`). Dispose `InProgress` only as an intentional abort.
+`DisposeSubagent` ends the child **and its subtree** when their participation is finished — not when they asked a clarifying question.
