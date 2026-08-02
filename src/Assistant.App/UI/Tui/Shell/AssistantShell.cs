@@ -61,9 +61,29 @@ public sealed class AssistantShell : Window
         agentsTab.Y = 0;
         agentsTab.Width = Dim.Fill();
         agentsTab.Height = Dim.Fill();
-        tabs.Add(inboxTab, agentsTab);
-        tabs.Value = inboxTab;
+        tabs.Add(agentsTab, inboxTab);
+        tabs.Value = agentsTab;
         workspaceFrame.Add(tabs);
+
+        void ShowInboxAfterSend()
+        {
+            tabs.Value = inboxTab;
+            inboxTab.ActivateList();
+        }
+
+        inboxTab.OutgoingMailSent += ShowInboxAfterSend;
+        agentsTab.OutgoingMailSent += ShowInboxAfterSend;
+
+        void Quit() => App?.RequestStop();
+
+        // Window default Quit throws when not running as a modal Runnable.
+        // Application Quit is rebound to Ctrl+Q in TuiAppUi; keep a safe handler here.
+        AddCommand(Command.Quit, () =>
+        {
+            Quit();
+            return true;
+        });
+        KeyBindings.Remove(Key.Esc);
 
         var statusBar = new StatusBar();
         var quit = new Shortcut
@@ -72,7 +92,7 @@ public sealed class AssistantShell : Window
             Key = Key.Q.WithCtrl,
             BindKeyToApplication = true
         };
-        quit.Activated += (_, _) => App?.RequestStop();
+        quit.Activated += (_, _) => Quit();
 
         var focusLog = new Shortcut
         {

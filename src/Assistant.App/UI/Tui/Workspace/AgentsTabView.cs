@@ -36,6 +36,9 @@ public sealed class AgentsTabView : View
         workspace.ChildrenChanged += OnChildrenChanged;
     }
 
+    /// <summary>Raised after a successful new-mail send.</summary>
+    public event Action? OutgoingMailSent;
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -71,7 +74,11 @@ public sealed class AgentsTabView : View
             subjectEditable: true,
             isReply: false,
             onSend: (subject, body) => _workspace.WriteMail(child.Name, subject, body),
-            onDone: BackToList,
+            onDone: () =>
+            {
+                BackToList();
+                OutgoingMailSent?.Invoke();
+            },
             onCancel: BackToList);
         _host.Push(compose);
     }

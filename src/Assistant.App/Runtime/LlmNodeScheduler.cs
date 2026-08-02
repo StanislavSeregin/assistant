@@ -18,11 +18,18 @@ public sealed class LlmNodeScheduler(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await foreach (var node in registry.LlmRegistered.ReadAllAsync(stoppingToken))
+        try
         {
-            _ = Task.Run(
-                () => RunNodeLoopAsync(node, stoppingToken),
-                CancellationToken.None);
+            await foreach (var node in registry.LlmRegistered.ReadAllAsync(stoppingToken))
+            {
+                _ = Task.Run(
+                    () => RunNodeLoopAsync(node, stoppingToken),
+                    CancellationToken.None);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Host shutdown cancelled the registration channel read.
         }
     }
 

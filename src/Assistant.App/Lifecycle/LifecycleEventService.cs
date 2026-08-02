@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Hosting;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -10,15 +11,22 @@ public sealed class LifecycleEventService(
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await foreach (var lifecycleEvent in channel.ReadAllAsync(stoppingToken))
+        try
         {
-            if (lifecycleEvent is LifecycleDrainBarrier barrier)
+            await foreach (var lifecycleEvent in channel.ReadAllAsync(stoppingToken))
             {
-                handler.CompleteWhenIdle(barrier);
-                continue;
-            }
+                if (lifecycleEvent is LifecycleDrainBarrier barrier)
+                {
+                    handler.CompleteWhenIdle(barrier);
+                    continue;
+                }
 
-            handler.Handle(lifecycleEvent);
+                handler.Handle(lifecycleEvent);
+            }
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // Host shutdown cancelled the lifecycle channel read.
         }
     }
 }

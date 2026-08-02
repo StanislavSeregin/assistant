@@ -34,6 +34,9 @@ public sealed class InboxTabView : View
         workspace.InboxChanged += OnInboxChanged;
     }
 
+    /// <summary>Raised after a successful reply send.</summary>
+    public event Action? OutgoingMailSent;
+
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -59,6 +62,13 @@ public sealed class InboxTabView : View
     {
         _host.TryPopToRoot();
         _listScreen.Reload();
+    }
+
+    /// <summary>Show the inbox list and take focus (e.g. after sending mail from Agents).</summary>
+    public void ActivateList()
+    {
+        BackToList();
+        SetFocus();
     }
 
     private void OpenMail(string mailId)
@@ -96,7 +106,11 @@ public sealed class InboxTabView : View
             subjectEditable: false,
             isReply: true,
             onSend: (_, body) => _workspace.ReplyMail(original.Id, body),
-            onDone: BackToList,
+            onDone: () =>
+            {
+                BackToList();
+                OutgoingMailSent?.Invoke();
+            },
             onCancel: () =>
             {
                 var message = _workspace.FindMail(original.Id) ?? original;
