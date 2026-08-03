@@ -4,7 +4,6 @@ using Assistant.App.UI.Tui.Shell;
 using Assistant.App.UI.Tui.Workspace;
 using Terminal.Gui.App;
 using Terminal.Gui.Configuration;
-using Terminal.Gui.Input;
 
 namespace Assistant.App.UI.Tui;
 
@@ -33,9 +32,8 @@ public sealed class TuiAppUi(
 
         using var app = Application.Create();
         app.Init();
-        // Terminal.Gui defaults Quit to Esc at the application level (RequestStop).
-        // Keep Quit on Ctrl+Q only — Esc is used for cancel/back in nested screens.
-        Application.SetDefaultKeyBinding(Command.Quit, Bind.All(Key.Q.WithCtrl));
+        using var inputPolicy = new TuiInputPolicy(app);
+        inputPolicy.Apply();
         scheduler.Attach(app);
         logSink.Start();
 
@@ -44,8 +42,14 @@ public sealed class TuiAppUi(
             var logPane = new LogPaneView(logBuffer, logSink);
             var inboxTab = new InboxTabView(workspace, uiScheduler);
             var agentsTab = new AgentsTabView(workspace, uiScheduler);
-            var shell = new AssistantShell(logPane, inboxTab, agentsTab);
-            shell.Tabs.SetFocus();
+            var shell = new AssistantShell(app, logPane, inboxTab, agentsTab);
+            void OnSessionBegun(object? sender, SessionTokenEventArgs e)
+            {
+                app.SessionBegun -= OnSessionBegun;
+                shell.ShowAgents();
+            }
+
+            app.SessionBegun += OnSessionBegun;
             app.Run(shell);
         }
         finally

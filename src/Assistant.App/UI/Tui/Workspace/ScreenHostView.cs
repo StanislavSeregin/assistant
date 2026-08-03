@@ -127,9 +127,11 @@ public sealed class ScreenHostView : View
             return;
         }
 
-        // TabGroup screens need the deepest TabStop (ListView / TextField), not the chrome.
         top.SetFocus();
-        top.FocusDeepest(NavigationDirection.Forward, TabBehavior.TabStop);
+        if (!top.FocusDeepest(NavigationDirection.Forward, TabBehavior.TabStop))
+        {
+            top.SetFocus();
+        }
     }
 
     private static void PlaceFull(View screen)

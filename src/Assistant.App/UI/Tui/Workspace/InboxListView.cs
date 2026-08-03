@@ -176,7 +176,7 @@ internal sealed class InboxListView : View
     private void UpdateContentSize()
     {
         var width = Math.Max(1, Viewport.Width);
-        var contentHeight = Math.Max(Viewport.Height, _items.Count);
+        var contentHeight = Math.Max(1, Math.Max(Viewport.Height, _items.Count));
         var current = GetContentSize();
         if (current.Width != width || current.Height != contentHeight)
         {

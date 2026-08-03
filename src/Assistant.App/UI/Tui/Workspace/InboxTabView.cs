@@ -1,5 +1,6 @@
 using Assistant.App.Mail;
 using Assistant.App.UI.Abstractions;
+using Assistant.App.UI.Tui.Shell;
 using System;
 using System.Linq;
 using Terminal.Gui.ViewBase;
@@ -7,7 +8,7 @@ using Terminal.Gui.Views;
 
 namespace Assistant.App.UI.Tui.Workspace;
 
-public sealed class InboxTabView : View
+public sealed class InboxTabView : View, IWorkspaceTab
 {
     private readonly IUserWorkspace _workspace;
     private readonly IUiScheduler _ui;
@@ -33,6 +34,9 @@ public sealed class InboxTabView : View
     }
 
     public event Action? OutgoingMailSent;
+
+    /// <summary>Active list or overlay screen inside this tab.</summary>
+    public View? CurrentScreen => _host.Current;
 
     public void FocusContent() => _host.FocusCurrent();
 

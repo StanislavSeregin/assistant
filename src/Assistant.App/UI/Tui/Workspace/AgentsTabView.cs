@@ -1,4 +1,5 @@
 using Assistant.App.UI.Abstractions;
+using Assistant.App.UI.Tui.Shell;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -8,7 +9,7 @@ using Terminal.Gui.Views;
 
 namespace Assistant.App.UI.Tui.Workspace;
 
-public sealed class AgentsTabView : View
+public sealed class AgentsTabView : View, IWorkspaceTab
 {
     private readonly IUserWorkspace _workspace;
     private readonly IUiScheduler _ui;
@@ -39,6 +40,9 @@ public sealed class AgentsTabView : View
 
     /// <summary>Raised after a successful new-mail send.</summary>
     public event Action? OutgoingMailSent;
+
+    /// <summary>Active list or overlay screen inside this tab.</summary>
+    public View? CurrentScreen => _host.Current;
 
     /// <summary>Focus the active screen inside this tab (deepest TabStop).</summary>
     public void FocusContent() => _host.FocusCurrent();

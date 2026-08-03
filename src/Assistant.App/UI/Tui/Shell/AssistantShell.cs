@@ -13,7 +13,10 @@ namespace Assistant.App.UI.Tui.Shell;
 /// </summary>
 public sealed class AssistantShell : Window
 {
+    private readonly WorkspaceNavigation _navigation;
+
     public AssistantShell(
+        IApplication app,
         LogPaneView logPane,
         InboxTabView inboxTab,
         AgentsTabView agentsTab)
@@ -33,7 +36,7 @@ public sealed class AssistantShell : Window
         logPane.Width = Dim.Fill();
         logPane.Height = Dim.Fill();
         logPane.CanFocus = true;
-        logPane.TabStop = TabBehavior.TabStop;
+        logPane.TabStop = TabBehavior.NoStop;
         logFrame.CommandsToBubbleUp = [Command.ScrollUp, Command.ScrollDown, Command.PageUp, Command.PageDown];
         logFrame.Add(logPane);
 
@@ -45,7 +48,7 @@ public sealed class AssistantShell : Window
             height: Dim.Fill(1),
             arrangement: ViewArrangement.Fixed);
 
-        var tabs = new Tabs
+        var tabs = new WorkspaceTabs
         {
             X = 0,
             Y = 0,
@@ -64,14 +67,15 @@ public sealed class AssistantShell : Window
         agentsTab.Height = Dim.Fill();
         tabs.Add(agentsTab, inboxTab);
         tabs.Value = agentsTab;
-        // Preserve each tab's screen stack; only restore focus into the active top screen.
-        tabs.ValueChanged += (_, e) => FocusTabContent(e.NewValue);
         workspaceFrame.Add(tabs);
+
+        var navigation = new WorkspaceNavigation(app, tabs, agentsTab, inboxTab);
+        _navigation = navigation;
 
         void ShowInboxAfterSend()
         {
-            tabs.Value = inboxTab;
             inboxTab.ActivateList();
+            navigation.ActivateInbox();
         }
 
         inboxTab.OutgoingMailSent += ShowInboxAfterSend;
@@ -80,7 +84,6 @@ public sealed class AssistantShell : Window
         void Quit() => App?.RequestStop();
 
         // Window default Quit throws when not running as a modal Runnable.
-        // Application Quit is rebound to Ctrl+Q in TuiAppUi; keep a safe handler here.
         AddCommand(Command.Quit, () =>
         {
             Quit();
@@ -114,7 +117,7 @@ public sealed class AssistantShell : Window
         focusWorkspace.Activated += (_, _) =>
         {
             tabs.SetFocus();
-            FocusTabContent(tabs.Value);
+            navigation.FocusActiveContent();
         };
 
         statusBar.Add(quit, focusLog, focusWorkspace);
@@ -129,35 +132,26 @@ public sealed class AssistantShell : Window
         logPane.HasFocusChanged += (_, _) =>
             SetTileFocusChrome(logFrame, logPane.HasFocus);
         tabs.HasFocusChanged += (_, _) =>
-        {
             SetTileFocusChrome(workspaceFrame, tabs.HasFocus);
-            if (tabs.HasFocus)
-            {
-                FocusTabContent(tabs.Value);
-            }
-        };
+    }
+
+    /// <summary>Startup default: Agents page with content focused.</summary>
+    public void ShowAgents() => _navigation.ActivateAgents();
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _navigation.Dispose();
+        }
+
+        base.Dispose(disposing);
     }
 
     public FrameView LogFrame { get; }
     public FrameView WorkspaceFrame { get; }
     public LogPaneView LogPane { get; }
     public Tabs Tabs { get; }
-
-    private static void FocusTabContent(View? tab)
-    {
-        switch (tab)
-        {
-            case AgentsTabView agents:
-                agents.FocusContent();
-                break;
-            case InboxTabView inbox:
-                inbox.FocusContent();
-                break;
-            default:
-                tab?.SetFocus();
-                break;
-        }
-    }
 
     private static FrameView CreateTileFrame(
         string? caption,
