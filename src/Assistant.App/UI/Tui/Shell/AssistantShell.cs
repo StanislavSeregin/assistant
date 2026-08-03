@@ -9,11 +9,14 @@ using Terminal.Gui.Views;
 namespace Assistant.App.UI.Tui.Shell;
 
 /// <summary>
-/// Root tiled shell: log on top, Inbox/Agents workspace on bottom.
+/// Root shell: exclusive full-screen modes for Workspace (default) and Log.
 /// </summary>
 public sealed class AssistantShell : Window
 {
     private readonly WorkspaceNavigation _navigation;
+    private readonly FrameView _logFrame;
+    private readonly LogPaneView _logPane;
+    private readonly WorkspaceTabs _tabs;
 
     public AssistantShell(
         IApplication app,
@@ -24,36 +27,25 @@ public sealed class AssistantShell : Window
         Title = "Assistant";
         BorderStyle = LineStyle.None;
 
-        var logFrame = CreateTileFrame(
-            caption: "Log",
-            x: 0,
-            y: 0,
-            width: Dim.Fill(),
-            height: Dim.Percent(40),
-            arrangement: ViewArrangement.BottomResizable);
+        _logFrame = CreateLogFrame();
+        _logPane = logPane;
         logPane.X = 0;
         logPane.Y = 1;
         logPane.Width = Dim.Fill();
         logPane.Height = Dim.Fill();
         logPane.CanFocus = true;
         logPane.TabStop = TabBehavior.NoStop;
-        logFrame.CommandsToBubbleUp = [Command.ScrollUp, Command.ScrollDown, Command.PageUp, Command.PageDown];
-        logFrame.Add(logPane);
+        _logFrame.CommandsToBubbleUp = [Command.ScrollUp, Command.ScrollDown, Command.PageUp, Command.PageDown];
+        _logFrame.Add(logPane);
+        _logFrame.Visible = false;
 
-        var workspaceFrame = CreateTileFrame(
-            caption: null,
-            x: 0,
-            y: Pos.Bottom(logFrame),
-            width: Dim.Fill(),
-            height: Dim.Fill(1),
-            arrangement: ViewArrangement.Fixed);
-
-        var tabs = new WorkspaceTabs
+        // No outer frame: Tabs already draw their own border around Agents/Inbox.
+        _tabs = new WorkspaceTabs
         {
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
-            Height = Dim.Fill(),
+            Height = Dim.Fill(1),
             CanFocus = true,
             TabStop = TabBehavior.TabGroup
         };
@@ -65,17 +57,17 @@ public sealed class AssistantShell : Window
         agentsTab.Y = 0;
         agentsTab.Width = Dim.Fill();
         agentsTab.Height = Dim.Fill();
-        tabs.Add(agentsTab, inboxTab);
-        tabs.Value = agentsTab;
-        workspaceFrame.Add(tabs);
+        _tabs.Add(agentsTab, inboxTab);
+        _tabs.Value = agentsTab;
 
-        var navigation = new WorkspaceNavigation(app, tabs, agentsTab, inboxTab);
+        var navigation = new WorkspaceNavigation(app, _tabs, agentsTab, inboxTab);
         _navigation = navigation;
 
         void ShowInboxAfterSend()
         {
             inboxTab.ActivateList();
             navigation.ActivateInbox();
+            ShowWorkspace();
         }
 
         inboxTab.OutgoingMailSent += ShowInboxAfterSend;
@@ -100,43 +92,52 @@ public sealed class AssistantShell : Window
         };
         quit.Activated += (_, _) => Quit();
 
-        var focusLog = new Shortcut
+        var showWorkspace = new Shortcut
+        {
+            Title = "Workspace",
+            Key = Key.F5,
+            BindKeyToApplication = true
+        };
+        showWorkspace.Activated += (_, _) => ShowWorkspace();
+
+        var showLog = new Shortcut
         {
             Title = "Log",
             Key = Key.F6,
             BindKeyToApplication = true
         };
-        focusLog.Activated += (_, _) => logPane.SetFocus();
+        showLog.Activated += (_, _) => ShowLog();
 
-        var focusWorkspace = new Shortcut
-        {
-            Title = "Workspace",
-            Key = Key.F7,
-            BindKeyToApplication = true
-        };
-        focusWorkspace.Activated += (_, _) =>
-        {
-            tabs.SetFocus();
-            navigation.FocusActiveContent();
-        };
+        statusBar.Add(quit, showWorkspace, showLog);
 
-        statusBar.Add(quit, focusLog, focusWorkspace);
+        Add(_logFrame, _tabs, statusBar);
 
-        Add(logFrame, workspaceFrame, statusBar);
-
-        LogFrame = logFrame;
-        WorkspaceFrame = workspaceFrame;
+        LogFrame = _logFrame;
         LogPane = logPane;
-        Tabs = tabs;
-
-        logPane.HasFocusChanged += (_, _) =>
-            SetTileFocusChrome(logFrame, logPane.HasFocus);
-        tabs.HasFocusChanged += (_, _) =>
-            SetTileFocusChrome(workspaceFrame, tabs.HasFocus);
+        Tabs = _tabs;
     }
 
-    /// <summary>Startup default: Agents page with content focused.</summary>
-    public void ShowAgents() => _navigation.ActivateAgents();
+    /// <summary>Startup default: Workspace screen on Agents page with content focused.</summary>
+    public void ShowAgents()
+    {
+        ShowWorkspace();
+        _navigation.ActivateAgents();
+    }
+
+    public void ShowLog()
+    {
+        _tabs.Visible = false;
+        _logFrame.Visible = true;
+        _logPane.SetFocus();
+    }
+
+    public void ShowWorkspace()
+    {
+        _logFrame.Visible = false;
+        _tabs.Visible = true;
+        _tabs.SetFocus();
+        _navigation.FocusActiveContent();
+    }
 
     protected override void Dispose(bool disposing)
     {
@@ -149,53 +150,36 @@ public sealed class AssistantShell : Window
     }
 
     public FrameView LogFrame { get; }
-    public FrameView WorkspaceFrame { get; }
     public LogPaneView LogPane { get; }
     public Tabs Tabs { get; }
 
-    private static FrameView CreateTileFrame(
-        string? caption,
-        Pos x,
-        Pos y,
-        Dim width,
-        Dim height,
-        ViewArrangement arrangement)
+    private static FrameView CreateLogFrame()
     {
         var frame = new FrameView
         {
             Title = string.Empty,
-            X = x,
-            Y = y,
-            Width = width,
-            Height = height,
-            Arrangement = arrangement,
+            X = 0,
+            Y = 0,
+            Width = Dim.Fill(),
+            Height = Dim.Fill(1),
+            Arrangement = ViewArrangement.Fixed,
             BorderStyle = LineStyle.Rounded,
             CanFocus = true,
             TabStop = TabBehavior.TabGroup
         };
         frame.Border.Settings = BorderSettings.Default;
 
-        if (!string.IsNullOrEmpty(caption))
+        var header = new Label
         {
-            var header = new Label
-            {
-                Text = caption,
-                X = 1,
-                Y = 0,
-                Width = Dim.Fill(1),
-                CanFocus = false,
-                TabStop = TabBehavior.NoStop
-            };
-            frame.Add(header);
-        }
+            Text = "Log",
+            X = 1,
+            Y = 0,
+            Width = Dim.Fill(1),
+            CanFocus = false,
+            TabStop = TabBehavior.NoStop
+        };
+        frame.Add(header);
 
         return frame;
-    }
-
-    private static void SetTileFocusChrome(FrameView frame, bool focused)
-    {
-        frame.BorderStyle = focused ? LineStyle.Heavy : LineStyle.Rounded;
-        frame.Title = string.Empty;
-        frame.Border.Settings = BorderSettings.Default;
     }
 }

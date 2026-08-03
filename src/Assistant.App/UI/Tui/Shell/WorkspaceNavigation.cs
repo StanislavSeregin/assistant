@@ -12,7 +12,7 @@ namespace Assistant.App.UI.Tui.Shell;
 /// <list type="bullet">
 /// <item>Arrows stay inside the focused control (scroll, list, caret).</item>
 /// <item>Tab / Shift+Tab walk fields on the active screen, then the sibling page.</item>
-/// <item>Log is a separate tile (F6 / F7), outside the Tab ring.</item>
+/// <item>Log is a separate full screen (F6), outside the Tab ring; F5 returns to Workspace.</item>
 /// <item>Page headers and Tab activation always leave keyboard focus in screen content.</item>
 /// </list>
 /// </summary>
