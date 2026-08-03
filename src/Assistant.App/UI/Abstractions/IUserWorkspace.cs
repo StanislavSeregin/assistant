@@ -6,12 +6,6 @@ namespace Assistant.App.UI.Abstractions;
 
 public sealed record ChildNodeInfo(string Name, string Description);
 
-public sealed record SpawnDefaults(
-    string Name,
-    string Description,
-    string Instructions,
-    string ParentRole);
-
 /// <summary>
 /// User-node operations for the interactive workspace (same mail/org ops as a parent agent).
 /// </summary>
@@ -23,7 +17,8 @@ public interface IUserWorkspace
 
     string DefaultMailSubject { get; }
 
-    SpawnDefaults GetSpawnDefaults();
+    /// <summary>Configured templates whose Name is not already a direct child of User.</summary>
+    IReadOnlyList<AgentTemplate> ListAvailableAgentTemplates();
 
     IReadOnlyList<InboxItem> ListInbox();
 
@@ -39,6 +34,8 @@ public interface IUserWorkspace
     (bool Ok, string Message) WriteMail(string toName, string subject, string body);
 
     IReadOnlyList<ChildNodeInfo> ListChildren();
+
+    (bool Ok, string Message) SpawnChild(AgentTemplate template);
 
     (bool Ok, string Message) SpawnChild(
         string name,

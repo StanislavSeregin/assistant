@@ -1,4 +1,5 @@
 using Assistant.App.UI.Abstractions;
+using Assistant.App.UI.Formatting;
 using System;
 using System.Collections.Generic;
 
@@ -164,7 +165,7 @@ public sealed class LogBuffer
 
     private void AddWrappedUnlocked(string text, LogTone tone)
     {
-        foreach (var segment in Wrap(text, _wrapWidth))
+        foreach (var segment in TextWrapping.Wrap(text, _wrapWidth))
         {
             AddLineUnlocked(segment, tone);
         }
@@ -202,35 +203,5 @@ public sealed class LogBuffer
 
             AddWrappedUnlocked(line.Text, line.Tone);
         }
-    }
-
-    internal static IEnumerable<string> Wrap(string text, int width)
-    {
-        if (width <= 0)
-        {
-            yield return text;
-            yield break;
-        }
-
-        if (string.IsNullOrEmpty(text))
-        {
-            yield return string.Empty;
-            yield break;
-        }
-
-        var remaining = text;
-        while (remaining.Length > width)
-        {
-            var breakAt = remaining.LastIndexOf(' ', width);
-            if (breakAt <= 0)
-            {
-                breakAt = width;
-            }
-
-            yield return remaining[..breakAt];
-            remaining = remaining[breakAt..].TrimStart();
-        }
-
-        yield return remaining;
     }
 }

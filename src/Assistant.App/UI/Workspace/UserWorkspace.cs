@@ -22,14 +22,15 @@ public sealed class UserWorkspace(
 
     public string DefaultMailSubject => settings.Value.UserMailSubject;
 
-    public SpawnDefaults GetSpawnDefaults()
+    public IReadOnlyList<AgentTemplate> ListAvailableAgentTemplates()
     {
-        var cfg = settings.Value;
-        return new SpawnDefaults(
-            cfg.DefaultChildName,
-            cfg.DefaultChildDescription,
-            cfg.DefaultChildInstructions,
-            cfg.UserDescription);
+        var inUse = ListChildren()
+            .Select(c => c.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        return settings.Value.AgentTemplates
+            .Where(t => !string.IsNullOrWhiteSpace(t.Name) && !inUse.Contains(t.Name))
+            .ToArray();
     }
 
     public IReadOnlyList<InboxItem> ListInbox() =>
@@ -67,6 +68,9 @@ public sealed class UserWorkspace(
             .Select(c => new ChildNodeInfo(c.Name, c.Description))
             .ToArray();
     }
+
+    public (bool Ok, string Message) SpawnChild(AgentTemplate template) =>
+        SpawnChild(template.Name, template.Description, template.Instructions);
 
     public (bool Ok, string Message) SpawnChild(
         string name,

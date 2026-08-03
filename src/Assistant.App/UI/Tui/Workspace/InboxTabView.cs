@@ -1,10 +1,7 @@
 using Assistant.App.Mail;
 using Assistant.App.UI.Abstractions;
 using System;
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
-using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 
@@ -29,13 +26,21 @@ public sealed class InboxTabView : View
         _ui = ui;
         _listScreen = new InboxListScreen(workspace, OpenMail);
         _host.Reset(_listScreen);
+        _host.RequestPopToRoot = BackToList;
         Add(_host);
 
         workspace.InboxChanged += OnInboxChanged;
     }
 
-    /// <summary>Raised after a successful reply send.</summary>
     public event Action? OutgoingMailSent;
+
+    public void FocusContent() => _host.FocusCurrent();
+
+    public void ActivateList()
+    {
+        BackToList();
+        FocusContent();
+    }
 
     protected override void Dispose(bool disposing)
     {
@@ -64,13 +69,6 @@ public sealed class InboxTabView : View
         _listScreen.Reload();
     }
 
-    /// <summary>Show the inbox list and take focus (e.g. after sending mail from Agents).</summary>
-    public void ActivateList()
-    {
-        BackToList();
-        SetFocus();
-    }
-
     private void OpenMail(string mailId)
     {
         var message = _workspace.ReadMail(mailId);
@@ -84,7 +82,7 @@ public sealed class InboxTabView : View
 
     private void PushDetail(MailMessage message)
     {
-        var detail = new InboxDetailScreen(
+        _host.Push(new InboxDetailScreen(
             message,
             onBack: BackToList,
             onReply: () => ShowReply(message),
@@ -92,13 +90,12 @@ public sealed class InboxTabView : View
             {
                 _workspace.DeleteMail(message.Id);
                 BackToList();
-            });
-        _host.Push(detail);
+            }));
     }
 
     private void ShowReply(MailMessage original)
     {
-        var reply = new ComposeMailScreen(
+        _host.Push(new ComposeMailScreen(
             toFixed: original.From,
             subject: original.Subject.StartsWith("Re:", StringComparison.OrdinalIgnoreCase)
                 ? original.Subject
@@ -115,8 +112,7 @@ public sealed class InboxTabView : View
             {
                 var message = _workspace.FindMail(original.Id) ?? original;
                 PushDetail(message);
-            });
-        _host.Push(reply);
+            }));
     }
 }
 
@@ -124,9 +120,7 @@ internal sealed class InboxListScreen : View
 {
     private readonly IUserWorkspace _workspace;
     private readonly Action<string> _openMail;
-    private readonly ListView _list;
-    private readonly ObservableCollection<string> _lines = [];
-    private IReadOnlyList<InboxItem> _items = [];
+    private readonly InboxListView _list;
 
     public InboxListScreen(IUserWorkspace workspace, Action<string> openMail)
     {
@@ -145,150 +139,27 @@ internal sealed class InboxListScreen : View
             TabStop = TabBehavior.NoStop
         };
 
-        _list = new ListView
+        _list = new InboxListView
         {
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
-            Height = Dim.Fill(1),
-            CanFocus = true,
-            TabStop = TabBehavior.TabStop
+            Height = Dim.Fill(1)
         };
-        _list.SetSource(_lines);
-        _list.KeyDown += (_, key) =>
-        {
-            if (key == Key.Enter)
-            {
-                OpenSelected();
-                key.Handled = true;
-            }
-        };
+        _list.AcceptSelected += OpenSelected;
 
         Add(_list, hint);
         Reload();
     }
 
-    public void Reload()
-    {
-        _items = _workspace.ListInbox().Reverse().ToArray();
-        _lines.Clear();
-        foreach (var i in _items)
-        {
-            var status = i.Status == MailStatus.New ? "NEW " : "    ";
-            _lines.Add($"{status}{MailTimestamp.FormatUtc(i.Timestamp)}  {i.From}  {i.Subject}");
-        }
-
-        if (_lines.Count > 0)
-        {
-            _list.SelectedItem = 0;
-        }
-    }
+    public void Reload() =>
+        _list.SetItems(_workspace.ListInbox().Reverse().ToArray());
 
     private void OpenSelected()
     {
-        var index = _list.SelectedItem ?? -1;
-        if (index < 0 || index >= _items.Count)
+        if (_list.SelectedItem is { } item)
         {
-            return;
+            _openMail(item.Id);
         }
-
-        _openMail(_items[index].Id);
-    }
-}
-
-/// <summary>
-/// Read-only mail body as a ListView subclass that owns R/D/Esc hotkeys.
-/// TextView was eating letter keys as text input.
-/// </summary>
-internal sealed class InboxDetailScreen : View
-{
-    public InboxDetailScreen(
-        MailMessage message,
-        Action onBack,
-        Action onReply,
-        Action onDelete)
-    {
-        CanFocus = true;
-        TabStop = TabBehavior.TabGroup;
-
-        var header = new Label
-        {
-            Text = $"From: {message.From}  Id: {message.Id}",
-            X = 0,
-            Y = 0,
-            Width = Dim.Fill(),
-            CanFocus = false
-        };
-        var subject = new Label
-        {
-            Text = $"Subject: {message.Subject}",
-            X = 0,
-            Y = 1,
-            Width = Dim.Fill(),
-            CanFocus = false
-        };
-
-        var bodyLines = new ObservableCollection<string>(
-            message.Body.ReplaceLineEndings("\n").Split('\n'));
-        var body = new MailBodyList(onReply, onDelete, onBack)
-        {
-            X = 0,
-            Y = 2,
-            Width = Dim.Fill(),
-            Height = Dim.Fill(1),
-            CanFocus = true,
-            TabStop = TabBehavior.TabStop
-        };
-        body.SetSource(bodyLines);
-
-        var hint = new Label
-        {
-            Text = "Ctrl+R reply · Ctrl+D delete · Esc back",
-            X = 0,
-            Y = Pos.AnchorEnd(),
-            Width = Dim.Fill(),
-            CanFocus = false
-        };
-
-        Add(header, subject, body, hint);
-    }
-}
-
-internal sealed class MailBodyList : ListView
-{
-    public MailBodyList(Action onReply, Action onDelete, Action onBack)
-    {
-        AddCommand(Command.Edit, () =>
-        {
-            onReply();
-            return true;
-        });
-        AddCommand(Command.Cancel, () =>
-        {
-            onBack();
-            return true;
-        });
-
-        KeyBindings.Add(Key.R.WithCtrl, Command.Edit);
-        KeyBindings.Add(Key.Esc, Command.Cancel);
-
-        KeyDown += (_, key) =>
-        {
-            if (key == Key.R.WithCtrl)
-            {
-                onReply();
-                key.Handled = true;
-            }
-            else if (key == Key.D.WithCtrl)
-            {
-                onDelete();
-                key.Handled = true;
-            }
-            else if (key == Key.Esc)
-            {
-                onBack();
-                key.Handled = true;
-            }
-        };
     }
 }

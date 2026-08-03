@@ -1,16 +1,20 @@
 using System;
+using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 
 namespace Assistant.App.UI.Tui.Workspace;
 
 /// <summary>
-/// Hosts a navigation stack: root list stays alive; overlays are disposed on pop.
+/// Single-overlay navigator for a tab: root stays in the hierarchy (hidden while an
+/// overlay is shown); overlays are disposed on replace/pop. Focus is always driven
+/// to the deepest TabStop of the top screen so list/input hotkeys keep working after
+/// tab switches.
 /// </summary>
 public sealed class ScreenHostView : View
 {
     private View? _root;
-    private View? _current;
+    private View? _overlay;
 
     public ScreenHostView()
     {
@@ -18,93 +22,121 @@ public sealed class ScreenHostView : View
         TabStop = TabBehavior.TabGroup;
         Width = Dim.Fill();
         Height = Dim.Fill();
+
+        AddCommand(Command.Cancel, () =>
+        {
+            if (IsRootScreen)
+            {
+                return false;
+            }
+
+            RequestPopToRoot?.Invoke();
+            return true;
+        });
+        // Esc → Cancel is default on View in some contexts; replace to be safe.
+        KeyBindings.Remove(Key.Esc);
+        KeyBindings.Add(Key.Esc, Command.Cancel);
     }
 
-    public View? Current => _current;
+    /// <summary>Dismiss overlay (reload list, etc.). Wired by the owning tab.</summary>
+    public Action? RequestPopToRoot { get; set; }
 
-    public bool IsRootScreen => _current is not null && ReferenceEquals(_current, _root);
+    public View? Current => _overlay ?? _root;
+
+    public bool IsRootScreen => _overlay is null && _root is not null;
 
     public void Reset(View root)
     {
-        DisposeOverlay();
+        ArgumentNullException.ThrowIfNull(root);
+
+        ClearOverlay();
+
         if (_root is not null && !ReferenceEquals(_root, root))
         {
             Remove(_root);
             _root.Dispose();
+            _root = null;
         }
 
         _root = root;
-        _current = null;
-        ShowRoot();
+        PlaceFull(_root);
+        if (_root.SuperView != this)
+        {
+            Add(_root);
+        }
+
+        _root.Visible = true;
+        FocusTop();
     }
 
     public void Push(View screen)
     {
+        ArgumentNullException.ThrowIfNull(screen);
         if (_root is null)
         {
             throw new InvalidOperationException("Screen host has no root.");
         }
 
-        if (ReferenceEquals(_current, _root))
-        {
-            Remove(_root);
-            _current = null;
-        }
-        else
-        {
-            DisposeOverlay();
-        }
+        ClearOverlay();
 
-        Attach(screen);
+        _root.Visible = false;
+        _overlay = screen;
+        PlaceFull(screen);
+        Add(screen);
+        FocusTop();
     }
 
     public bool TryPopToRoot()
     {
-        if (_root is null || IsRootScreen)
+        if (_overlay is null)
         {
             return false;
         }
 
-        DisposeOverlay();
-        ShowRoot();
+        ClearOverlay();
+        if (_root is not null)
+        {
+            _root.Visible = true;
+            FocusTop();
+        }
+
         return true;
     }
 
-    private void ShowRoot()
+    /// <summary>Re-enter the top screen after the owning tab becomes selected again.</summary>
+    public void FocusCurrent() => FocusTop();
+
+    private void ClearOverlay()
     {
-        if (_root is null)
+        if (_overlay is null)
         {
             return;
         }
 
-        Attach(_root);
+        var dying = _overlay;
+        _overlay = null;
+        Remove(dying);
+        dying.Dispose();
     }
 
-    private void Attach(View screen)
+    private void FocusTop()
+    {
+        var top = Current;
+        if (top is null)
+        {
+            return;
+        }
+
+        // TabGroup screens need the deepest TabStop (ListView / TextField), not the chrome.
+        top.SetFocus();
+        top.FocusDeepest(NavigationDirection.Forward, TabBehavior.TabStop);
+    }
+
+    private static void PlaceFull(View screen)
     {
         screen.X = 0;
         screen.Y = 0;
         screen.Width = Dim.Fill();
         screen.Height = Dim.Fill();
-        _current = screen;
-        if (screen.SuperView != this)
-        {
-            Add(screen);
-        }
-
-        screen.SetFocus();
-    }
-
-    private void DisposeOverlay()
-    {
-        if (_current is null || ReferenceEquals(_current, _root))
-        {
-            _current = null;
-            return;
-        }
-
-        Remove(_current);
-        _current.Dispose();
-        _current = null;
     }
 }

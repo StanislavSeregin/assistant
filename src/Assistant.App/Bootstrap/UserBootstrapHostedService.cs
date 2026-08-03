@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace Assistant.App.Bootstrap;
 
 /// <summary>
-/// Registers the User (Human) root node and seeds the default LLM child.
+/// Registers the User root node and optionally seeds Settings.AgentTemplates[0].
 /// </summary>
 public sealed class UserBootstrapHostedService(
     NodeRegistry registry,
@@ -19,11 +19,23 @@ public sealed class UserBootstrapHostedService(
     {
         var cfg = settings.Value;
         var user = registry.RegisterUser(cfg.UserDescription);
+
+        if (cfg.AgentTemplates is not { Count: > 0 })
+        {
+            return;
+        }
+
+        var template = cfg.AgentTemplates[0];
+        if (string.IsNullOrWhiteSpace(template.Name))
+        {
+            return;
+        }
+
         var child = registry.SpawnChild(
             user,
-            cfg.DefaultChildName,
-            cfg.DefaultChildDescription,
-            cfg.DefaultChildInstructions,
+            template.Name.Trim(),
+            template.Description,
+            template.Instructions,
             parentRole: cfg.UserDescription);
         await bootstrap.BootstrapAsync(child, cancellationToken);
     }

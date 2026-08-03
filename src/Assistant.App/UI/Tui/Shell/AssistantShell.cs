@@ -1,5 +1,6 @@
 using Assistant.App.UI.Tui.Log;
 using Assistant.App.UI.Tui.Workspace;
+using Terminal.Gui.App;
 using Terminal.Gui.Drawing;
 using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
@@ -63,6 +64,8 @@ public sealed class AssistantShell : Window
         agentsTab.Height = Dim.Fill();
         tabs.Add(agentsTab, inboxTab);
         tabs.Value = agentsTab;
+        // Preserve each tab's screen stack; only restore focus into the active top screen.
+        tabs.ValueChanged += (_, e) => FocusTabContent(e.NewValue);
         workspaceFrame.Add(tabs);
 
         void ShowInboxAfterSend()
@@ -108,7 +111,11 @@ public sealed class AssistantShell : Window
             Key = Key.F7,
             BindKeyToApplication = true
         };
-        focusWorkspace.Activated += (_, _) => tabs.SetFocus();
+        focusWorkspace.Activated += (_, _) =>
+        {
+            tabs.SetFocus();
+            FocusTabContent(tabs.Value);
+        };
 
         statusBar.Add(quit, focusLog, focusWorkspace);
 
@@ -122,13 +129,35 @@ public sealed class AssistantShell : Window
         logPane.HasFocusChanged += (_, _) =>
             SetTileFocusChrome(logFrame, logPane.HasFocus);
         tabs.HasFocusChanged += (_, _) =>
+        {
             SetTileFocusChrome(workspaceFrame, tabs.HasFocus);
+            if (tabs.HasFocus)
+            {
+                FocusTabContent(tabs.Value);
+            }
+        };
     }
 
     public FrameView LogFrame { get; }
     public FrameView WorkspaceFrame { get; }
     public LogPaneView LogPane { get; }
     public Tabs Tabs { get; }
+
+    private static void FocusTabContent(View? tab)
+    {
+        switch (tab)
+        {
+            case AgentsTabView agents:
+                agents.FocusContent();
+                break;
+            case InboxTabView inbox:
+                inbox.FocusContent();
+                break;
+            default:
+                tab?.SetFocus();
+                break;
+        }
+    }
 
     private static FrameView CreateTileFrame(
         string? caption,

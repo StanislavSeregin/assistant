@@ -1,5 +1,7 @@
 using Assistant.App.UI.Abstractions;
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
@@ -175,119 +177,5 @@ internal sealed class ConfirmScreen : View
                 key.Handled = true;
             }
         };
-    }
-}
-
-internal sealed class SpawnChildScreen : View
-{
-    private readonly TextField _name;
-    private readonly TextField _description;
-#pragma warning disable CS0618
-    private readonly TextView _instructions;
-#pragma warning restore CS0618
-    private readonly Label _status;
-    private readonly Func<string, string, string, (bool Ok, string Message)> _onCreate;
-    private readonly Action _onCancel;
-
-    public SpawnChildScreen(
-        SpawnDefaults defaults,
-        Func<string, string, string, (bool Ok, string Message)> onCreate,
-        Action onCancel)
-    {
-        _onCreate = onCreate;
-        _onCancel = onCancel;
-        CanFocus = true;
-        TabStop = TabBehavior.TabGroup;
-
-        var title = new Label
-        {
-            Text = "New agent (identity only — WriteMail after)",
-            X = 0,
-            Y = 0,
-            Width = Dim.Fill(),
-            CanFocus = false
-        };
-
-        var nameLabel = new Label { Text = "Name:", X = 0, Y = 1, CanFocus = false };
-        _name = new TextField
-        {
-            Text = defaults.Name,
-            X = 10,
-            Y = 1,
-            Width = Dim.Fill(),
-            CanFocus = true,
-            TabStop = TabBehavior.TabStop
-        };
-
-        var descLabel = new Label { Text = "Role:", X = 0, Y = 2, CanFocus = false };
-        _description = new TextField
-        {
-            Text = defaults.Description,
-            X = 10,
-            Y = 2,
-            Width = Dim.Fill(),
-            CanFocus = true,
-            TabStop = TabBehavior.TabStop
-        };
-
-        var instrLabel = new Label { Text = "Instructions:", X = 0, Y = 3, CanFocus = false };
-#pragma warning disable CS0618
-        _instructions = new TextView
-        {
-            Text = defaults.Instructions,
-            X = 0,
-            Y = 4,
-            Width = Dim.Fill(),
-            Height = Dim.Fill(1),
-            Multiline = true,
-            WordWrap = true,
-            CanFocus = true,
-            TabStop = TabBehavior.TabStop,
-            TabKeyAddsTab = false
-        };
-#pragma warning restore CS0618
-
-        _status = new Label
-        {
-            Text = "Ctrl+Enter create · Esc cancel",
-            X = 0,
-            Y = Pos.AnchorEnd(),
-            Width = Dim.Fill(),
-            CanFocus = false
-        };
-
-        Add(title, nameLabel, _name, descLabel, _description, instrLabel, _instructions, _status);
-
-        KeyDown += (_, key) =>
-        {
-            if (key == Key.Esc)
-            {
-                _onCancel();
-                key.Handled = true;
-            }
-            else if (key == Key.Enter.WithCtrl)
-            {
-                TryCreate();
-                key.Handled = true;
-            }
-        };
-    }
-
-    private void TryCreate()
-    {
-        var name = _name.Text?.Trim() ?? string.Empty;
-        var description = _description.Text?.Trim() ?? string.Empty;
-        var instructions = _instructions.Text?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            _status.Text = "Name is empty.";
-            return;
-        }
-
-        var (ok, message) = _onCreate(name, description, instructions);
-        if (!ok)
-        {
-            _status.Text = message;
-        }
     }
 }

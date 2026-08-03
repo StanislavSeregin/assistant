@@ -29,8 +29,9 @@ public sealed class AgentsTabView : View
             workspace,
             onWrite: ShowWrite,
             onDispose: ShowDisposeConfirm,
-            onSpawn: ShowSpawn);
+            onSpawn: ShowSpawnFromTemplate);
         _host.Reset(_listScreen);
+        _host.RequestPopToRoot = BackToList;
         Add(_host);
 
         workspace.ChildrenChanged += OnChildrenChanged;
@@ -38,6 +39,9 @@ public sealed class AgentsTabView : View
 
     /// <summary>Raised after a successful new-mail send.</summary>
     public event Action? OutgoingMailSent;
+
+    /// <summary>Focus the active screen inside this tab (deepest TabStop).</summary>
+    public void FocusContent() => _host.FocusCurrent();
 
     protected override void Dispose(bool disposing)
     {
@@ -96,23 +100,33 @@ public sealed class AgentsTabView : View
         _host.Push(confirm);
     }
 
-    private void ShowSpawn()
+    private void ShowSpawnFromTemplate()
     {
-        var defaults = _workspace.GetSpawnDefaults();
-        var form = new SpawnChildScreen(
-            defaults,
-            onCreate: (name, description, instructions) =>
-            {
-                var (ok, message) = _workspace.SpawnChild(name, description, instructions);
-                if (ok)
-                {
-                    BackToList();
-                }
+        var picker = new SpawnTemplateScreen(
+            listAvailable: _workspace.ListAvailableAgentTemplates,
+            onSpawn: template => FinishSpawn(_workspace.SpawnChild(template)),
+            onCustom: ShowSpawnCustom,
+            onCancel: BackToList);
+        _host.Push(picker);
+    }
 
-                return (ok, message);
-            },
+    private void ShowSpawnCustom()
+    {
+        var form = new SpawnChildScreen(
+            onCreate: (name, description, instructions) =>
+                FinishSpawn(_workspace.SpawnChild(name, description, instructions)),
             onCancel: BackToList);
         _host.Push(form);
+    }
+
+    private (bool Ok, string Message) FinishSpawn((bool Ok, string Message) result)
+    {
+        if (result.Ok)
+        {
+            BackToList();
+        }
+
+        return result;
     }
 }
 

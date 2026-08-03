@@ -24,6 +24,12 @@ public sealed class LifecycleLogPresenter
 
     public void Handle(ILifecycleEvent lifecycleEvent)
     {
+        // User actions stay on the bus (inbox/agents UI), but echo poorly in the log.
+        if (IsUserOriginated(lifecycleEvent))
+        {
+            return;
+        }
+
         switch (lifecycleEvent)
         {
             case ThinkingStarted e:
@@ -97,6 +103,19 @@ public sealed class LifecycleLogPresenter
                 break;
         }
     }
+
+    private static bool IsUserOriginated(ILifecycleEvent lifecycleEvent) =>
+        lifecycleEvent switch
+        {
+            MailSent { From: "User" } => true,
+            MailRead { Node: "User" } => true,
+            MailReplied { Node: "User" } => true,
+            MailDeleted { Node: "User" } => true,
+            MailPurged { Node: "User" } => true,
+            NodeSpawned { Parent: "User" } => true,
+            NodeDisposed { Parent: "User" } => true,
+            _ => false
+        };
 
     private void WriteMail(MailSent e)
     {

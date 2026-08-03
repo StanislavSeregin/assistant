@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Assistant.App;
 
@@ -18,12 +19,8 @@ public class Settings
 
     public string SkillsPath { get; set; } = "skills";
 
-    public string DefaultChildName { get; set; } = "Secretary";
-
-    public string DefaultChildDescription { get; set; } = "Manager";
-
-    public string DefaultChildInstructions { get; set; } =
-        "Organize the execution of the user's tasks.";
+    /// <summary>Identity presets for user-spawned agents. First (if named) is seeded at startup.</summary>
+    public List<AgentTemplate> AgentTemplates { get; set; } = [];
 
     public string UserDescription { get; set; } = "Director";
 
