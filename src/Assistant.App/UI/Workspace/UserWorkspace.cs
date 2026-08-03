@@ -1,5 +1,6 @@
 using Assistant.App.Lifecycle;
 using Assistant.App.Mail;
+using Assistant.App.Persistence;
 using Assistant.App.Registry;
 using Assistant.App.Tools;
 using Assistant.App.UI.Abstractions;
@@ -14,6 +15,7 @@ public sealed class UserWorkspace(
     NodeRegistry registry,
     MailService mail,
     AgentBootstrap bootstrap,
+    SessionCheckpoint checkpoint,
     IOptions<Settings> settings) : IUserWorkspace
 {
     public event EventHandler? InboxChanged;
@@ -87,6 +89,7 @@ public sealed class UserWorkspace(
                 instructions,
                 parentRole: settings.Value.UserDescription);
             bootstrap.Bootstrap(child);
+            checkpoint.SaveEmptySession(child);
             return (true, $"Spawned '{child.Name}'.");
         }
         catch (Exception ex)
@@ -107,7 +110,10 @@ public sealed class UserWorkspace(
                 handle.Inbox.Clear();
             }
 
+            // Purge publishes MailPurged on the lifecycle bus (async). Raise InboxChanged
+            // here too so the UI does not depend on the bus for a local dispose.
             mail.PurgeMailFrom(user, names);
+            InboxChanged?.Invoke(this, EventArgs.Empty);
             return (true, $"Disposed '{name}' and subtree ({names.Length} node(s)).");
         }
         catch (Exception ex)

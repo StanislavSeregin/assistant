@@ -1,13 +1,15 @@
 using Assistant.App.Mail;
-using Assistant.App.UI.Formatting;
 using System;
-using System.Collections.ObjectModel;
 using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 
 namespace Assistant.App.UI.Tui.Workspace;
 
+/// <summary>
+/// Read-only mail detail, laid out like <see cref="ComposeMailScreen"/> so body/subject
+/// can be selected and copied without allowing edits.
+/// </summary>
 internal sealed class InboxDetailScreen : View
 {
     public InboxDetailScreen(
@@ -27,24 +29,42 @@ internal sealed class InboxDetailScreen : View
             Width = Dim.Fill(),
             CanFocus = false
         };
-        var subject = new Label
+
+        var subjectLabel = new Label
         {
-            Text = $"Subject: {message.Subject}",
+            Text = "Subject:",
             X = 0,
             Y = 1,
-            Width = Dim.Fill(),
             CanFocus = false
         };
 
-        var body = new MailBodyList(message.Body, onReply, onDelete, onBack)
+        var subject = new TextField
         {
+            Text = message.Subject,
+            X = Pos.Right(subjectLabel) + 1,
+            Y = 1,
+            Width = Dim.Fill(),
+            ReadOnly = true,
+            CanFocus = true,
+            TabStop = TabBehavior.TabStop
+        };
+
+#pragma warning disable CS0618
+        var body = new TextView
+        {
+            Text = message.Body,
             X = 0,
             Y = 2,
             Width = Dim.Fill(),
             Height = Dim.Fill(1),
+            Multiline = true,
+            WordWrap = true,
+            ReadOnly = true,
             CanFocus = true,
-            TabStop = TabBehavior.TabStop
+            TabStop = TabBehavior.TabStop,
+            TabKeyAddsTab = false
         };
+#pragma warning restore CS0618
 
         var hint = new Label
         {
@@ -55,70 +75,30 @@ internal sealed class InboxDetailScreen : View
             CanFocus = false
         };
 
-        Add(header, subject, body, hint);
-    }
-}
+        Add(header, subjectLabel, subject, body, hint);
 
-/// <summary>
-/// Read-only wrapped body. ListView avoids TextView eating letter keys as input.
-/// </summary>
-internal sealed class MailBodyList : ListView
-{
-    private readonly string[] _paragraphs;
-    private readonly ObservableCollection<string> _lines = [];
-    private int _wrapWidth = -1;
-
-    public MailBodyList(string body, Action onReply, Action onDelete, Action onBack)
-    {
-        _paragraphs = body.ReplaceLineEndings("\n").Split('\n');
-        SetSource(_lines);
-
-        AddCommand(Command.Edit, () =>
+        void HandleHotkeys(object? _, Key key)
         {
-            onReply();
-            return true;
-        });
-        AddCommand(Command.Cancel, () =>
-        {
-            onBack();
-            return true;
-        });
-        AddCommand(Command.DeleteAll, () =>
-        {
-            onDelete();
-            return true;
-        });
-
-        KeyBindings.Add(Key.R.WithCtrl, Command.Edit);
-        KeyBindings.Add(Key.D.WithCtrl, Command.DeleteAll);
-        KeyBindings.Remove(Key.Esc);
-        KeyBindings.Add(Key.Esc, Command.Cancel);
-
-        ViewportChanged += (_, _) => EnsureWrapped();
-    }
-
-    private void EnsureWrapped()
-    {
-        var width = Math.Max(1, Viewport.Width);
-        if (width == _wrapWidth)
-        {
-            return;
-        }
-
-        _wrapWidth = width;
-        var selected = Math.Max(0, SelectedItem ?? 0);
-        _lines.Clear();
-        foreach (var paragraph in _paragraphs)
-        {
-            foreach (var segment in TextWrapping.Wrap(paragraph, width))
+            if (key == Key.Esc)
             {
-                _lines.Add(segment);
+                onBack();
+                key.Handled = true;
+            }
+            else if (key == Key.R.WithCtrl)
+            {
+                onReply();
+                key.Handled = true;
+            }
+            else if (key == Key.D.WithCtrl)
+            {
+                // TextView binds Ctrl+D to delete-char; intercept before that runs.
+                onDelete();
+                key.Handled = true;
             }
         }
 
-        if (_lines.Count > 0)
-        {
-            SelectedItem = Math.Clamp(selected, 0, _lines.Count - 1);
-        }
+        KeyDown += HandleHotkeys;
+        subject.KeyDown += HandleHotkeys;
+        body.KeyDown += HandleHotkeys;
     }
 }

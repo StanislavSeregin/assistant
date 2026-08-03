@@ -1,4 +1,5 @@
 using Assistant.App.Lifecycle;
+using Assistant.App.Persistence;
 using Assistant.App.Registry;
 using System;
 using System.Collections.Generic;
@@ -9,9 +10,12 @@ namespace Assistant.App.Mail;
 
 public sealed class MailService(
     NodeRegistry registry,
-    ILifecycleSink lifecycle)
+    ILifecycleSink lifecycle,
+    IAgentStateStore store)
 {
     private long _mailSeq;
+
+    public void SetMailSeq(long mailSeq) => Interlocked.Exchange(ref _mailSeq, mailSeq);
 
     public IReadOnlyList<(string Name, string Role, bool IsParent)> GetRecipients(NodeHandle node)
     {
@@ -57,6 +61,7 @@ public sealed class MailService(
             return $"Mail '{mailId}' not found.";
         }
 
+        PersistInbox(node);
         lifecycle.Publish(new MailRead(
             node.Name,
             message.Id,
@@ -138,6 +143,7 @@ public sealed class MailService(
             return (false, $"Mail '{mailId}' not found.");
         }
 
+        PersistInbox(from);
         lifecycle.Publish(new MailReplied(from.Name, mailId));
 
         var subject = original.Subject.StartsWith("Re:", StringComparison.OrdinalIgnoreCase)
@@ -162,6 +168,7 @@ public sealed class MailService(
             return (false, $"Mail '{mailId}' not found.");
         }
 
+        PersistInbox(node);
         lifecycle.Publish(new MailDeleted(node.Name, mailId));
         return (true, $"Deleted mail '{mailId}' from inbox.");
     }
@@ -177,6 +184,11 @@ public sealed class MailService(
                 total += count;
                 lifecycle.Publish(new MailPurged(node.Name, name, count));
             }
+        }
+
+        if (total > 0)
+        {
+            PersistInbox(node);
         }
 
         return total;
@@ -205,6 +217,7 @@ public sealed class MailService(
     private void DeliverToNode(NodeHandle to, MailMessage mail)
     {
         to.Inbox.Add(mail);
+        PersistInbox(to);
         lifecycle.Publish(new MailReceived(
             to.Name,
             mail.Id,
@@ -239,6 +252,7 @@ public sealed class MailService(
         Guid threadId)
     {
         var seq = Interlocked.Increment(ref _mailSeq);
+        store.SaveMailSeq(seq);
         return new MailMessage
         {
             Id = $"m{seq}",
@@ -251,6 +265,8 @@ public sealed class MailService(
             ThreadId = threadId
         };
     }
+
+    private void PersistInbox(NodeHandle node) => store.SaveInbox(node);
 
     private bool TryResolveRecipient(
         NodeHandle from,

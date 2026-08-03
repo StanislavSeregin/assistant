@@ -98,4 +98,21 @@ public sealed class MailInbox
             _messages.Clear();
         }
     }
+
+    public IReadOnlyList<MailMessage> Snapshot()
+    {
+        lock (_sync)
+        {
+            return _messages.ToArray();
+        }
+    }
+
+    public void ReplaceAll(IEnumerable<MailMessage> messages)
+    {
+        lock (_sync)
+        {
+            _messages.Clear();
+            _messages.AddRange(messages);
+        }
+    }
 }

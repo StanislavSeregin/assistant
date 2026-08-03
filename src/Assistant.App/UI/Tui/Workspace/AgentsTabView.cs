@@ -45,7 +45,15 @@ public sealed class AgentsTabView : View, IWorkspaceTab
     public View? CurrentScreen => _host.Current;
 
     /// <summary>Focus the active screen inside this tab (deepest TabStop).</summary>
-    public void FocusContent() => _host.FocusCurrent();
+    public void FocusContent()
+    {
+        if (_host.IsRootScreen)
+        {
+            _listScreen.Reload();
+        }
+
+        _host.FocusCurrent();
+    }
 
     protected override void Dispose(bool disposing)
     {
@@ -59,13 +67,7 @@ public sealed class AgentsTabView : View, IWorkspaceTab
 
     private void OnChildrenChanged(object? sender, EventArgs e)
     {
-        _ui.Post(() =>
-        {
-            if (_host.IsRootScreen)
-            {
-                _listScreen.Reload();
-            }
-        });
+        _ui.Post(() => _listScreen.Reload());
     }
 
     private void BackToList()

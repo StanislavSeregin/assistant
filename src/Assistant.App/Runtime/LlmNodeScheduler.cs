@@ -22,14 +22,28 @@ public sealed class LlmNodeScheduler(
         {
             await foreach (var node in registry.LlmRegistered.ReadAllAsync(stoppingToken))
             {
-                _ = Task.Run(
-                    () => RunNodeLoopAsync(node, stoppingToken),
-                    CancellationToken.None);
+                _ = ObserveNodeLoopAsync(node, stoppingToken);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
             // Host shutdown cancelled the registration channel read.
+        }
+    }
+
+    private async Task ObserveNodeLoopAsync(NodeHandle node, CancellationToken stoppingToken)
+    {
+        try
+        {
+            await RunNodeLoopAsync(node, stoppingToken);
+        }
+        catch (Exception ex) when (NodeShutdown.IsBenign(ex, node, stoppingToken))
+        {
+            // Mid-stream abort after dispose/shutdown must not surface as an error.
+        }
+        catch (Exception ex)
+        {
+            lifecycle.Publish(new ErrorEvent(node.Name, ex.Message));
         }
     }
 
@@ -64,10 +78,12 @@ public sealed class LlmNodeScheduler(
                 try
                 {
                     await slots.RunAsync(
-                        () => turnRunner.RunTurnAsync(node, linked.Token),
+                        () => llm.NeedsResumeTurn
+                            ? turnRunner.ResumeTurnAsync(node, linked.Token)
+                            : turnRunner.RunTurnAsync(node, linked.Token),
                         linked.Token);
                 }
-                catch (OperationCanceledException) when (linked.Token.IsCancellationRequested)
+                catch (Exception ex) when (NodeShutdown.IsBenign(ex, node, linked.Token))
                 {
                     break;
                 }
@@ -85,9 +101,9 @@ public sealed class LlmNodeScheduler(
                 }
             }
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (NodeShutdown.IsBenign(ex, node, linked.Token))
         {
-            // shutdown
+            // Channel completed / token cancelled on dispose or host stop.
         }
     }
 }

@@ -2,6 +2,7 @@
 .vs/
 bin/
 obj/
+artifacts/
 tmp-*/
 **/tmp-*/
 *.user

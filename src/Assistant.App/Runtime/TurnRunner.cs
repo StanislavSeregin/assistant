@@ -1,4 +1,5 @@
 using Assistant.App.Lifecycle;
+using Assistant.App.Persistence;
 using Assistant.App.Registry;
 using Assistant.App.Support;
 using Assistant.App.Tools;
@@ -16,7 +17,8 @@ public sealed class TurnRunner(
     ChatClientFactory chatClientFactory,
     AgentMailTools tools,
     TurnSupportAdvisor turnSupport,
-    ILifecycleSink lifecycle)
+    ILifecycleSink lifecycle,
+    SessionCheckpoint checkpoint)
 {
     private readonly ConcurrentDictionary<string, byte> _invokedToolCalls = new();
     private readonly AsyncLocal<TurnScope?> _scope = new();
@@ -28,7 +30,92 @@ public sealed class TurnRunner(
         public Guid? ThinkingStreamId { get; set; }
     }
 
-    public async Task RunTurnAsync(NodeHandle agent, CancellationToken cancellationToken)
+    public Task RunTurnAsync(NodeHandle agent, CancellationToken cancellationToken) =>
+        WithTurnAsync(
+            agent,
+            new TurnActivity(),
+            async activity =>
+            {
+                // Turn input must be User role — System is often dropped and the run returns empty.
+                var turnHistoryStart = GetHistoryCount(agent);
+                var wake = TurnPromptBuilder.BuildWakeMessage(agent);
+                lifecycle.Publish(new TurnWake(agent.Name, wake.Text));
+                await RunModelAsync(agent, wake, activity, cancellationToken);
+                await ContinueAfterWakeAsync(agent, activity, turnHistoryStart, cancellationToken);
+            },
+            cancellationToken);
+
+    /// <summary>
+    /// Resume a turn after process restore. Does not inject a new wake — prior wake is already in history.
+    /// </summary>
+    public Task ResumeTurnAsync(NodeHandle agent, CancellationToken cancellationToken)
+    {
+        var llm = RequireBoundLlm(agent);
+        var activity = TurnActivity.FromPersisted(
+            llm.PersistedDidHandleMail,
+            llm.PersistedDidCommitContext);
+        llm.NeedsResumeTurn = false;
+
+        return WithTurnAsync(
+            agent,
+            activity,
+            async act =>
+            {
+                if (act.DidCommitContext)
+                {
+                    return;
+                }
+
+                var historyStart = GetHistoryCount(agent);
+                if (!act.DidHandleMail && agent.Inbox.HasMail())
+                {
+                    var notice = TurnPromptBuilder.BuildFallbackMailNotice(agent);
+                    var systemNotice = "[SYSTEM]" + Environment.NewLine + notice;
+                    lifecycle.Publish(new SupportAdvice(agent.Name, systemNotice));
+                    await RunModelAsync(
+                        agent,
+                        new ChatMessage(ChatRole.User, systemNotice),
+                        act,
+                        cancellationToken);
+                }
+                else if (!act.DidHandleMail)
+                {
+                    // History exists but flags say mail unsettled and inbox empty — treat mail as done.
+                    act.MarkMailHandled();
+                }
+
+                await ContinueAfterWakeAsync(agent, act, historyStart, cancellationToken);
+            },
+            cancellationToken);
+    }
+
+    private async Task WithTurnAsync(
+        NodeHandle agent,
+        TurnActivity activity,
+        Func<TurnActivity, Task> body,
+        CancellationToken cancellationToken)
+    {
+        _ = RequireBoundLlm(agent);
+        _scope.Value = new TurnScope(agent, activity);
+        lifecycle.Publish(new TurnStarted(agent.Name));
+
+        try
+        {
+            await body(activity);
+        }
+        catch (Exception) when (NodeShutdown.IsStopped(agent, cancellationToken))
+        {
+            // Dispose / shutdown aborted the turn; do not surface as agent error.
+        }
+        finally
+        {
+            CompleteThinking(agent.Name);
+            _scope.Value = null;
+            lifecycle.Publish(new TurnEnded(agent.Name));
+        }
+    }
+
+    private static LlmNodeRuntime RequireBoundLlm(NodeHandle agent)
     {
         var llm = agent.Llm
             ?? throw new InvalidOperationException($"Node '{agent.Name}' is not an LLM node.");
@@ -37,91 +124,80 @@ public sealed class TurnRunner(
             throw new InvalidOperationException($"Agent '{agent.Name}' is not bootstrapped.");
         }
 
-        var activity = new TurnActivity();
-        _scope.Value = new TurnScope(agent, activity);
-        lifecycle.Publish(new TurnStarted(agent.Name));
+        return llm;
+    }
 
-        try
+    private async Task ContinueAfterWakeAsync(
+        NodeHandle agent,
+        TurnActivity activity,
+        int turnHistoryStart,
+        CancellationToken cancellationToken)
+    {
+        if (NodeShutdown.IsStopped(agent, cancellationToken))
         {
-            // Turn input must be User role — System is often dropped and the run returns empty.
-            var turnHistoryStart = GetHistoryCount(agent);
-            var wake = TurnPromptBuilder.BuildWakeMessage(agent);
-            lifecycle.Publish(new TurnWake(agent.Name, wake.Text));
-            await RunModelAsync(agent, wake, activity, cancellationToken);
-
-            var mailSupportAttempt = 0;
-            while (!activity.DidHandleMail && !cancellationToken.IsCancellationRequested)
-            {
-                mailSupportAttempt++;
-                var advice = await turnSupport.AdviseAsync(
-                    TurnSupportMode.Mail,
-                    agent,
-                    turnHistoryStart,
-                    mailSupportAttempt,
-                    cancellationToken);
-                if (string.IsNullOrWhiteSpace(advice))
-                {
-                    advice = TurnPromptBuilder.BuildFallbackMailNotice(agent);
-                }
-
-                var systemNotice = "[SYSTEM]" + Environment.NewLine + advice;
-                lifecycle.Publish(new SupportAdvice(agent.Name, systemNotice));
-                await RunModelAsync(
-                    agent,
-                    new ChatMessage(ChatRole.User, systemNotice),
-                    activity,
-                    cancellationToken);
-            }
-
-            if (cancellationToken.IsCancellationRequested)
-            {
-                return;
-            }
-
-            // Agent may CommitContext in the same model run right after mail tools.
-            if (activity.DidCommitContext)
-            {
-                return;
-            }
-
-            var compactHistoryStart = GetHistoryCount(agent);
-            var compactNudge = TurnPromptBuilder.BuildCompactNudgeMessage();
-            lifecycle.Publish(new SupportAdvice(agent.Name, compactNudge.Text!));
-            await RunModelAsync(agent, compactNudge, activity, cancellationToken);
-            if (activity.DidCommitContext)
-            {
-                return;
-            }
-
-            var compactSupportAttempt = 0;
-            while (!activity.DidCommitContext && !cancellationToken.IsCancellationRequested)
-            {
-                compactSupportAttempt++;
-                var advice = await turnSupport.AdviseAsync(
-                    TurnSupportMode.Compact,
-                    agent,
-                    compactHistoryStart,
-                    compactSupportAttempt,
-                    cancellationToken);
-                if (string.IsNullOrWhiteSpace(advice))
-                {
-                    advice = TurnPromptBuilder.BuildFallbackCompactNotice();
-                }
-
-                var systemNotice = "[SYSTEM]" + Environment.NewLine + advice;
-                lifecycle.Publish(new SupportAdvice(agent.Name, systemNotice));
-                await RunModelAsync(
-                    agent,
-                    new ChatMessage(ChatRole.User, systemNotice),
-                    activity,
-                    cancellationToken);
-            }
+            return;
         }
-        finally
+
+        var mailSupportAttempt = 0;
+        while (!activity.DidHandleMail && !NodeShutdown.IsStopped(agent, cancellationToken))
         {
-            CompleteThinking(agent.Name);
-            _scope.Value = null;
-            lifecycle.Publish(new TurnEnded(agent.Name));
+            mailSupportAttempt++;
+            var advice = await turnSupport.AdviseAsync(
+                TurnSupportMode.Mail,
+                agent,
+                turnHistoryStart,
+                mailSupportAttempt,
+                cancellationToken);
+            if (string.IsNullOrWhiteSpace(advice))
+            {
+                advice = TurnPromptBuilder.BuildFallbackMailNotice(agent);
+            }
+
+            var systemNotice = "[SYSTEM]" + Environment.NewLine + advice;
+            lifecycle.Publish(new SupportAdvice(agent.Name, systemNotice));
+            await RunModelAsync(
+                agent,
+                new ChatMessage(ChatRole.User, systemNotice),
+                activity,
+                cancellationToken);
+        }
+
+        if (NodeShutdown.IsStopped(agent, cancellationToken) || activity.DidCommitContext)
+        {
+            return;
+        }
+
+        var compactHistoryStart = GetHistoryCount(agent);
+        var compactNudge = TurnPromptBuilder.BuildCompactNudgeMessage();
+        lifecycle.Publish(new SupportAdvice(agent.Name, compactNudge.Text!));
+        await RunModelAsync(agent, compactNudge, activity, cancellationToken);
+        if (activity.DidCommitContext || NodeShutdown.IsStopped(agent, cancellationToken))
+        {
+            return;
+        }
+
+        var compactSupportAttempt = 0;
+        while (!activity.DidCommitContext && !NodeShutdown.IsStopped(agent, cancellationToken))
+        {
+            compactSupportAttempt++;
+            var advice = await turnSupport.AdviseAsync(
+                TurnSupportMode.Compact,
+                agent,
+                compactHistoryStart,
+                compactSupportAttempt,
+                cancellationToken);
+            if (string.IsNullOrWhiteSpace(advice))
+            {
+                advice = TurnPromptBuilder.BuildFallbackCompactNotice();
+            }
+
+            var systemNotice = "[SYSTEM]" + Environment.NewLine + advice;
+            lifecycle.Publish(new SupportAdvice(agent.Name, systemNotice));
+            await RunModelAsync(
+                agent,
+                new ChatMessage(ChatRole.User, systemNotice),
+                activity,
+                cancellationToken);
         }
     }
 
@@ -187,21 +263,39 @@ public sealed class TurnRunner(
             }
 
             var updates = new List<AgentResponseUpdate>();
-            await foreach (var update in llm.Agent.RunStreamingAsync(
-                input,
-                llm.Session,
-                chatClientFactory.CreateRunOptions(tools.BuildTools(agent, activity)),
-                cancellationToken))
+            try
             {
-                updates.Add(update);
-                inputTokens = ToolCallFormatting.ReadInputTokens(update) ?? inputTokens;
-                ToolCallFormatting.CollectToolCalls(update, pendingToolCalls);
-
-                var text = ToolCallFormatting.ReadVisibleText(update);
-                if (!string.IsNullOrWhiteSpace(text))
+                await foreach (var update in llm.Agent.RunStreamingAsync(
+                    input,
+                    llm.Session,
+                    chatClientFactory.CreateRunOptions(tools.BuildTools(agent, activity)),
+                    cancellationToken))
                 {
-                    EmitThinking(agent.Name, text);
+                    if (NodeShutdown.IsStopped(agent, cancellationToken))
+                    {
+                        return;
+                    }
+
+                    updates.Add(update);
+                    inputTokens = ToolCallFormatting.ReadInputTokens(update) ?? inputTokens;
+                    ToolCallFormatting.CollectToolCalls(update, pendingToolCalls);
+
+                    var text = ToolCallFormatting.ReadVisibleText(update);
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        EmitThinking(agent.Name, text);
+                    }
                 }
+            }
+            catch (Exception) when (NodeShutdown.IsStopped(agent, cancellationToken))
+            {
+                // Transport abort still leaked past the chat-client wrapper.
+                return;
+            }
+
+            if (NodeShutdown.IsStopped(agent, cancellationToken))
+            {
+                return;
             }
 
             if (inputTokens is null && updates.Count > 0)
@@ -213,7 +307,12 @@ public sealed class TurnRunner(
         {
             PublishUninvokedToolCalls(agent.Name, pendingToolCalls.Values);
             _invokedToolCalls.Clear();
-            PublishTurnUsage(agent.Name, inputTokens);
+            if (!agent.IsDisposed)
+            {
+                PublishTurnUsage(agent.Name, inputTokens);
+                // Block boundary: history is flushed; persist whole messages array + StateBag.
+                checkpoint.CheckpointSession(agent, activity);
+            }
         }
     }
 

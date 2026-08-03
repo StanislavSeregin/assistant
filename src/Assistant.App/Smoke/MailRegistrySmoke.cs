@@ -1,5 +1,6 @@
 using Assistant.App.Lifecycle;
 using Assistant.App.Mail;
+using Assistant.App.Persistence;
 using Assistant.App.Registry;
 using System;
 using System.Linq;
@@ -15,8 +16,9 @@ public static class MailRegistrySmoke
     public static async Task<int> RunAsync()
     {
         var channel = new LifecycleEventChannel();
-        var registry = new NodeRegistry(channel);
-        var mail = new MailService(registry, channel);
+        var store = new InMemoryAgentStateStore();
+        var registry = new NodeRegistry(channel, store);
+        var mail = new MailService(registry, channel, store);
 
         var user = registry.RegisterUser("Director");
         var root = registry.SpawnChild(user, "Secretary", "Manager", string.Empty, "Director");

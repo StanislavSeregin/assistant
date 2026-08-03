@@ -1,5 +1,6 @@
 using Assistant.App.Lifecycle;
 using Assistant.App.Mail;
+using Assistant.App.Persistence;
 using Assistant.App.Registry;
 using Assistant.App.Runtime;
 using Assistant.App.Support;
@@ -17,7 +18,8 @@ public sealed class AgentMailTools(
     MailService mail,
     NodeRegistry registry,
     AgentBootstrap bootstrap,
-    ILifecycleSink lifecycle)
+    ILifecycleSink lifecycle,
+    SessionCheckpoint checkpoint)
 {
     public const int MaxHandoffCharacters = 4000;
 
@@ -194,6 +196,7 @@ public sealed class AgentMailTools(
                 instructions,
                 parentRole);
             bootstrap.Bootstrap(child);
+            checkpoint.SaveEmptySession(child);
             return $"Spawned subagent '{child.Name}'. Write them mail to brief them.";
         }
         catch (Exception ex)
@@ -255,6 +258,7 @@ public sealed class AgentMailTools(
         agent.Llm.ContinuityHandoff = text;
         agent.Llm.Session.SetInMemoryChatHistory([]);
         activity.MarkContextCommitted();
+        checkpoint.CheckpointClearedSession(agent);
         lifecycle.Publish(new ContextCommitted(agent.Name, text, text.Length));
         return "Saved. Chat history cleared. Next wake will open with this note, then your inbox.";
     }

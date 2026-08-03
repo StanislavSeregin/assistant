@@ -37,6 +37,15 @@ public sealed class LlmNodeRuntime
 
     public string? ContinuityHandoff { get; set; }
 
+    /// <summary>
+    /// After process restore: next wake should resume mid-turn without injecting a new wake message.
+    /// </summary>
+    public bool NeedsResumeTurn { get; set; }
+
+    public bool PersistedDidHandleMail { get; set; }
+
+    public bool PersistedDidCommitContext { get; set; }
+
     public AIAgent? Agent { get; private set; }
 
     public AgentSession? Session { get; private set; }

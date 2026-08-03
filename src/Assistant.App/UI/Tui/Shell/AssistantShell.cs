@@ -17,6 +17,7 @@ public sealed class AssistantShell : Window
     private readonly FrameView _logFrame;
     private readonly LogPaneView _logPane;
     private readonly WorkspaceTabs _tabs;
+    private readonly Shortcut _toggleMode;
 
     public AssistantShell(
         IApplication app,
@@ -92,23 +93,16 @@ public sealed class AssistantShell : Window
         };
         quit.Activated += (_, _) => Quit();
 
-        var showWorkspace = new Shortcut
+        // Title is the destination mode; starts on Workspace so F5 opens Log.
+        _toggleMode = new Shortcut
         {
-            Title = "Workspace",
+            Title = "Log",
             Key = Key.F5,
             BindKeyToApplication = true
         };
-        showWorkspace.Activated += (_, _) => ShowWorkspace();
+        _toggleMode.Activated += (_, _) => ToggleMode();
 
-        var showLog = new Shortcut
-        {
-            Title = "Log",
-            Key = Key.F6,
-            BindKeyToApplication = true
-        };
-        showLog.Activated += (_, _) => ShowLog();
-
-        statusBar.Add(quit, showWorkspace, showLog);
+        statusBar.Add(quit, _toggleMode);
 
         Add(_logFrame, _tabs, statusBar);
 
@@ -124,10 +118,23 @@ public sealed class AssistantShell : Window
         _navigation.ActivateAgents();
     }
 
+    public void ToggleMode()
+    {
+        if (_logFrame.Visible)
+        {
+            ShowWorkspace();
+        }
+        else
+        {
+            ShowLog();
+        }
+    }
+
     public void ShowLog()
     {
         _tabs.Visible = false;
         _logFrame.Visible = true;
+        _toggleMode.Title = "Workspace";
         _logPane.SetFocus();
     }
 
@@ -135,6 +142,7 @@ public sealed class AssistantShell : Window
     {
         _logFrame.Visible = false;
         _tabs.Visible = true;
+        _toggleMode.Title = "Log";
         _tabs.SetFocus();
         _navigation.FocusActiveContent();
     }

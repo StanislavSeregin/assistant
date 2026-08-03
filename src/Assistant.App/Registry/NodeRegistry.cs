@@ -1,4 +1,5 @@
 using Assistant.App.Lifecycle;
+using Assistant.App.Persistence;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -9,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace Assistant.App.Registry;
 
-public sealed class NodeRegistry(ILifecycleSink lifecycle)
+public sealed class NodeRegistry(ILifecycleSink lifecycle, IAgentStateStore store)
 {
     private readonly ConcurrentDictionary<NodeId, NodeHandle> _nodes = new();
     private readonly Channel<NodeHandle> _llmRegistered = Channel.CreateUnbounded<NodeHandle>(
@@ -58,6 +59,91 @@ public sealed class NodeRegistry(ILifecycleSink lifecycle)
             handle.Description,
             handle.Instructions,
             ParentDescription: null));
+        store.SaveNode(handle);
+        return handle;
+    }
+
+    /// <summary>Restores a node from LiteDB without re-seeding templates.</summary>
+    public NodeHandle RestoreNode(PersistedNodeDocument doc)
+    {
+        var id = new NodeId(doc.Id);
+        if (id.IsUser)
+        {
+            if (_userRegistered)
+            {
+                throw new InvalidOperationException("User node is already registered.");
+            }
+
+            var user = new NodeHandle(
+                NodeId.User,
+                NodeId.User.Value,
+                doc.Description,
+                instructions: string.Empty,
+                parentId: null,
+                parentDescription: null,
+                NodeRuntimeKind.Human);
+
+            if (!_nodes.TryAdd(NodeId.User, user))
+            {
+                throw new InvalidOperationException("User node already exists.");
+            }
+
+            _userRegistered = true;
+            foreach (var (childName, childId) in doc.ChildrenByName)
+            {
+                user.ChildrenByName[childName] = new NodeId(childId);
+            }
+
+            lifecycle.Publish(new NodeSpawned(
+                user.Name,
+                user.Id.Value,
+                Parent: string.Empty,
+                user.Description,
+                user.Instructions,
+                ParentDescription: null));
+            return user;
+        }
+
+        var parentId = doc.ParentId is null ? (NodeId?)null : new NodeId(doc.ParentId);
+        var handle = new NodeHandle(
+            id,
+            doc.Name,
+            doc.Description,
+            doc.Instructions,
+            parentId,
+            doc.ParentDescription,
+            doc.RuntimeKind);
+
+        if (handle.Llm is not null)
+        {
+            handle.Llm.ContinuityHandoff = doc.ContinuityHandoff;
+            handle.Llm.PersistedDidHandleMail = doc.DidHandleMail;
+            handle.Llm.PersistedDidCommitContext = doc.DidCommitContext;
+        }
+
+        foreach (var (childName, childId) in doc.ChildrenByName)
+        {
+            handle.ChildrenByName[childName] = new NodeId(childId);
+        }
+
+        if (!_nodes.TryAdd(id, handle))
+        {
+            throw new InvalidOperationException($"Node id '{id}' already exists.");
+        }
+
+        lifecycle.Publish(new NodeSpawned(
+            handle.Name,
+            handle.Id.Value,
+            parentId?.Value ?? string.Empty,
+            handle.Description,
+            handle.Instructions,
+            handle.ParentDescription));
+
+        if (handle.RuntimeKind == NodeRuntimeKind.Llm)
+        {
+            _llmRegistered.Writer.TryWrite(handle);
+        }
+
         return handle;
     }
 
@@ -118,6 +204,8 @@ public sealed class NodeRegistry(ILifecycleSink lifecycle)
             handle.Description,
             handle.Instructions,
             handle.ParentDescription));
+        store.SaveNode(handle);
+        store.SaveNode(parent);
         _llmRegistered.Writer.TryWrite(handle);
         return handle;
     }
@@ -138,6 +226,7 @@ public sealed class NodeRegistry(ILifecycleSink lifecycle)
 
         var disposed = new List<NodeHandle>();
         DisposeRecursive(child, disposed);
+        store.CommitSubtreeDisposal(parent, disposed.Select(d => d.Id.Value).ToArray());
         return disposed;
     }
 

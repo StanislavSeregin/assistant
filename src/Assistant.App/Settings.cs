@@ -25,4 +25,9 @@ public class Settings
     public string UserDescription { get; set; } = "Director";
 
     public string UserMailSubject { get; set; } = "User request";
+
+    /// <summary>
+    /// Path to the LiteDB state file. Empty = %LocalAppData%/Assistant/state.litedb.
+    /// </summary>
+    public string StateDbPath { get; set; } = string.Empty;
 }

@@ -1,6 +1,7 @@
 using Assistant.App.Mail;
 using Assistant.App.Registry;
 using Microsoft.Extensions.AI;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -22,17 +23,59 @@ internal sealed class MailNoticeInjectingChatClient(IChatClient inner, NodeHandl
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var prepared = InjectNotices(messages);
-        await foreach (var update in base.GetStreamingResponseAsync(prepared, options, cancellationToken))
+        var enumerator = base.GetStreamingResponseAsync(prepared, options, cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
+        try
         {
-            yield return update;
+            while (true)
+            {
+                bool moved;
+                try
+                {
+                    moved = await enumerator.MoveNextAsync();
+                }
+                catch (Exception ex) when (NodeShutdown.IsBenign(ex, agent, cancellationToken))
+                {
+                    // Dispose cancels Lifetime mid-SSE; end the stream instead of faulting
+                    // the Agents pipeline (which surfaces TaskCanceledException as an error).
+                    yield break;
+                }
+
+                if (!moved)
+                {
+                    yield break;
+                }
+
+                yield return enumerator.Current;
+            }
+        }
+        finally
+        {
+            try
+            {
+                await enumerator.DisposeAsync();
+            }
+            catch (Exception) when (NodeShutdown.IsStopped(agent, cancellationToken))
+            {
+                // Enumerator cleanup can re-throw the same transport abort.
+            }
         }
     }
 
-    public override Task<ChatResponse> GetResponseAsync(
+    public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
-        CancellationToken cancellationToken = default) =>
-        base.GetResponseAsync(InjectNotices(messages), options, cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            return await base.GetResponseAsync(InjectNotices(messages), options, cancellationToken);
+        }
+        catch (Exception ex) when (NodeShutdown.IsBenign(ex, agent, cancellationToken))
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+    }
 
     private IEnumerable<ChatMessage> InjectNotices(IEnumerable<ChatMessage> messages)
     {
@@ -52,7 +95,7 @@ internal sealed class MailNoticeInjectingChatClient(IChatClient inner, NodeHandl
         var lines = notices.Select(n =>
             $"- id={n.MailId}; time={MailTimestamp.FormatUtc(n.Timestamp)}; from={n.From}; subject={n.Subject}");
         return
-            "[SYSTEM] New mail arrived during your turn:" + System.Environment.NewLine
-            + string.Join(System.Environment.NewLine, lines);
+            "[SYSTEM] New mail arrived during your turn:" + Environment.NewLine
+            + string.Join(Environment.NewLine, lines);
     }
 }

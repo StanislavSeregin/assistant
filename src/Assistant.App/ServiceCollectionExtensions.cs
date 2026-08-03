@@ -1,6 +1,7 @@
 using Assistant.App.Bootstrap;
 using Assistant.App.Lifecycle;
 using Assistant.App.Mail;
+using Assistant.App.Persistence;
 using Assistant.App.Registry;
 using Assistant.App.Runtime;
 using Assistant.App.Support;
@@ -27,6 +28,8 @@ public static class ServiceCollectionExtensions
             .AddSingleton<ChatClientFactory>()
             .AddSingleton<LifecycleEventChannel>()
             .AddSingleton<ILifecycleSink>(sp => sp.GetRequiredService<LifecycleEventChannel>())
+            .AddSingleton<IAgentStateStore, LiteDbAgentStateStore>()
+            .AddSingleton<SessionCheckpoint>()
             .AddSingleton<NodeRegistry>()
             .AddSingleton<MailService>()
             .AddSingleton<ModelSlotLimiter>()

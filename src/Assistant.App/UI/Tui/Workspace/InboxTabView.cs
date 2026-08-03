@@ -14,6 +14,7 @@ public sealed class InboxTabView : View, IWorkspaceTab
     private readonly IUiScheduler _ui;
     private readonly ScreenHostView _host = new();
     private readonly InboxListScreen _listScreen;
+    private string? _openMailId;
 
     public InboxTabView(IUserWorkspace workspace, IUiScheduler ui)
     {
@@ -38,7 +39,16 @@ public sealed class InboxTabView : View, IWorkspaceTab
     /// <summary>Active list or overlay screen inside this tab.</summary>
     public View? CurrentScreen => _host.Current;
 
-    public void FocusContent() => _host.FocusCurrent();
+    public void FocusContent()
+    {
+        // Tabs may keep a stale paint of inactive pages; re-bind from source when shown.
+        if (_host.IsRootScreen)
+        {
+            _listScreen.Reload();
+        }
+
+        _host.FocusCurrent();
+    }
 
     public void ActivateList()
     {
@@ -60,15 +70,21 @@ public sealed class InboxTabView : View, IWorkspaceTab
     {
         _ui.Post(() =>
         {
-            if (_host.IsRootScreen)
+            // Drop detail/reply if that mail was purged (e.g. agent disposed) or deleted.
+            // Unrelated inbox changes only refresh the list so reading stays put.
+            if (_openMailId is not null && _workspace.FindMail(_openMailId) is null)
             {
-                _listScreen.Reload();
+                BackToList();
+                return;
             }
+
+            _listScreen.Reload();
         });
     }
 
     private void BackToList()
     {
+        _openMailId = null;
         _host.TryPopToRoot();
         _listScreen.Reload();
     }
@@ -86,6 +102,7 @@ public sealed class InboxTabView : View, IWorkspaceTab
 
     private void PushDetail(MailMessage message)
     {
+        _openMailId = message.Id;
         _host.Push(new InboxDetailScreen(
             message,
             onBack: BackToList,
@@ -99,6 +116,7 @@ public sealed class InboxTabView : View, IWorkspaceTab
 
     private void ShowReply(MailMessage original)
     {
+        _openMailId = original.Id;
         _host.Push(new ComposeMailScreen(
             toFixed: original.From,
             subject: original.Subject.StartsWith("Re:", StringComparison.OrdinalIgnoreCase)

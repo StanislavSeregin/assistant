@@ -15,4 +15,20 @@ public sealed class TurnActivity
     public void MarkMailHandled() => DidHandleMail = true;
 
     public void MarkContextCommitted() => DidCommitContext = true;
+
+    public static TurnActivity FromPersisted(bool didHandleMail, bool didCommitContext)
+    {
+        var activity = new TurnActivity();
+        if (didHandleMail)
+        {
+            activity.MarkMailHandled();
+        }
+
+        if (didCommitContext)
+        {
+            activity.MarkContextCommitted();
+        }
+
+        return activity;
+    }
 }
