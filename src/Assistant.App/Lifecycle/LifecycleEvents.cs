@@ -78,6 +78,8 @@ public record ToolCalled(
 
 public record SupportAdvice(string Node, string Message) : ILifecycleEvent;
 
+public record SystemNotificationInjected(string Node, string Message) : ILifecycleEvent;
+
 public record ContextCommitted(string Node, string Handoff, int HandoffCharacters) : ILifecycleEvent;
 
 public record ErrorEvent(string Node, string Message) : ILifecycleEvent;

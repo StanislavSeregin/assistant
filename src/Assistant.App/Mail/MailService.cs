@@ -232,10 +232,13 @@ public sealed class MailService(
             return;
         }
 
-        var notice = new MailNotice(mail.Id, mail.Timestamp, mail.From, mail.Subject, mail.IsFromParent);
+        var notice = new SystemNotification(
+            SystemNotificationKinds.Mail,
+            $"id={mail.Id}; time={MailTimestamp.FormatUtc(mail.Timestamp)}; from={mail.From}; subject={mail.Subject}",
+            mail.Id);
         if (to.Llm.State == NodeRunState.Running)
         {
-            to.Llm.EnqueueMailNotice(notice);
+            to.Llm.EnqueueSystemNotification(notice);
         }
         else
         {

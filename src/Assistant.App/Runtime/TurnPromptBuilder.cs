@@ -3,6 +3,7 @@ using Assistant.App.Registry;
 using Assistant.App.Support;
 using Microsoft.Extensions.AI;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
@@ -10,7 +11,8 @@ namespace Assistant.App.Runtime;
 
 internal static class TurnPromptBuilder
 {
-    public static ChatMessage BuildWakeMessage(NodeHandle agent)
+    public static (ChatMessage Message, IReadOnlyList<string> ListedMailIds) BuildWakeMessage(
+        NodeHandle agent)
     {
         var open = agent.Inbox.List();
         if (open.Count == 0)
@@ -58,7 +60,8 @@ internal static class TurnPromptBuilder
             "After CommitContext, chat history is cleared so the next wake starts from your " +
             "note (as reference) plus the inbox. Treat this wake as one focused stretch of work.");
 
-        return new ChatMessage(ChatRole.User, sb.ToString());
+        var listedIds = open.Select(item => item.Id).ToArray();
+        return (new ChatMessage(ChatRole.User, sb.ToString()), listedIds);
     }
 
     public static ChatMessage BuildCompactNudgeMessage()

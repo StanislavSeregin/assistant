@@ -1,20 +1,24 @@
-using Assistant.App.Mail;
+using Assistant.App.Lifecycle;
 using Assistant.App.Registry;
 using Microsoft.Extensions.AI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace Assistant.App.Runtime;
 
 /// <summary>
-/// Injects pending mail notices as a system message before every model call,
+/// Injects pending system notifications as one system message before every model call,
 /// which sits under FunctionInvokingChatClient and therefore runs between logical blocks.
 /// </summary>
-internal sealed class MailNoticeInjectingChatClient(IChatClient inner, NodeHandle agent)
+internal sealed class SystemNotificationInjectingChatClient(
+    IChatClient inner,
+    NodeHandle agent,
+    ILifecycleSink lifecycle)
     : DelegatingChatClient(inner)
 {
     public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
@@ -22,7 +26,7 @@ internal sealed class MailNoticeInjectingChatClient(IChatClient inner, NodeHandl
         ChatOptions? options = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var prepared = InjectNotices(messages);
+        var prepared = InjectNotifications(messages);
         var enumerator = base.GetStreamingResponseAsync(prepared, options, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
         try
@@ -69,7 +73,7 @@ internal sealed class MailNoticeInjectingChatClient(IChatClient inner, NodeHandl
     {
         try
         {
-            return await base.GetResponseAsync(InjectNotices(messages), options, cancellationToken);
+            return await base.GetResponseAsync(InjectNotifications(messages), options, cancellationToken);
         }
         catch (Exception ex) when (NodeShutdown.IsBenign(ex, agent, cancellationToken))
         {
@@ -77,25 +81,59 @@ internal sealed class MailNoticeInjectingChatClient(IChatClient inner, NodeHandl
         }
     }
 
-    private IEnumerable<ChatMessage> InjectNotices(IEnumerable<ChatMessage> messages)
+    private IEnumerable<ChatMessage> InjectNotifications(IEnumerable<ChatMessage> messages)
     {
-        var notices = agent.Llm?.DrainPendingMailNotices() ?? [];
+        var notices = agent.Llm?.DrainPendingSystemNotifications() ?? [];
         if (notices.Count == 0)
         {
             return messages;
         }
 
+        var text = FormatNotifications(notices);
+        lifecycle.Publish(new SystemNotificationInjected(agent.Name, text));
+
         var list = messages as IList<ChatMessage> ?? messages.ToList();
-        list.Add(new ChatMessage(ChatRole.System, FormatNotices(notices)));
+        list.Add(new ChatMessage(ChatRole.System, text));
         return list;
     }
 
-    private static string FormatNotices(IReadOnlyList<MailNotice> notices)
+    private static string FormatNotifications(IReadOnlyList<SystemNotification> notices)
     {
-        var lines = notices.Select(n =>
-            $"- id={n.MailId}; time={MailTimestamp.FormatUtc(n.Timestamp)}; from={n.From}; subject={n.Subject}");
-        return
-            "[SYSTEM] New mail arrived during your turn:" + Environment.NewLine
-            + string.Join(Environment.NewLine, lines);
+        var sections = new List<(string Kind, List<string> Details)>();
+        var indexByKind = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var notice in notices)
+        {
+            if (!indexByKind.TryGetValue(notice.Kind, out var index))
+            {
+                index = sections.Count;
+                indexByKind[notice.Kind] = index;
+                sections.Add((notice.Kind, []));
+            }
+
+            sections[index].Details.Add(notice.Detail);
+        }
+
+        var sb = new StringBuilder();
+        sb.AppendLine("[SYSTEM] Notifications during your turn:");
+        for (var i = 0; i < sections.Count; i++)
+        {
+            var (kind, details) = sections[i];
+            sb.Append(kind);
+            sb.Append(':');
+            sb.AppendLine();
+            foreach (var detail in details)
+            {
+                sb.Append("- ");
+                sb.AppendLine(detail);
+            }
+
+            if (i < sections.Count - 1)
+            {
+                sb.AppendLine();
+            }
+        }
+
+        return sb.ToString().TrimEnd();
     }
 }

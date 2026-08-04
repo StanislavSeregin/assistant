@@ -38,8 +38,11 @@ public sealed class TurnRunner(
             {
                 // Turn input must be User role — System is often dropped and the run returns empty.
                 var turnHistoryStart = GetHistoryCount(agent);
-                var wake = TurnPromptBuilder.BuildWakeMessage(agent);
+                var (wake, listedMailIds) = TurnPromptBuilder.BuildWakeMessage(agent);
                 lifecycle.Publish(new TurnWake(agent.Name, wake.Text));
+                // Mail that arrived after TryBeginRun may have been queued as mid-turn notices
+                // while still appearing in the wake inbox list — drop those duplicates.
+                DiscardWakeCoveredMailNotifications(agent, listedMailIds);
                 await RunModelAsync(agent, wake, activity, cancellationToken);
                 await ContinueAfterWakeAsync(agent, activity, turnHistoryStart, cancellationToken);
             },
@@ -125,6 +128,22 @@ public sealed class TurnRunner(
         }
 
         return llm;
+    }
+
+    private static void DiscardWakeCoveredMailNotifications(
+        NodeHandle agent,
+        IReadOnlyList<string> listedMailIds)
+    {
+        if (agent.Llm is null || listedMailIds.Count == 0)
+        {
+            return;
+        }
+
+        var covered = new HashSet<string>(listedMailIds, StringComparer.Ordinal);
+        agent.Llm.DiscardPendingSystemNotifications(notice =>
+            notice.Kind == SystemNotificationKinds.Mail
+            && notice.ItemId is not null
+            && covered.Contains(notice.ItemId));
     }
 
     private async Task ContinueAfterWakeAsync(

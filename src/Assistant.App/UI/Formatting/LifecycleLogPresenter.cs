@@ -76,6 +76,10 @@ public sealed class LifecycleLogPresenter
                 PauseThinking(e.Node);
                 WriteNotice($"{e.Node} · support", e.Message, LogTone.Yellow);
                 break;
+            case SystemNotificationInjected e:
+                PauseThinking(e.Node);
+                WriteNotice($"{e.Node} · notify", e.Message, LogTone.Yellow);
+                break;
             case ErrorEvent e:
                 PauseThinking(e.Node);
                 WriteNotice($"{e.Node} · error", e.Message, LogTone.Red);

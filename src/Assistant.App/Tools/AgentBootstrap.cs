@@ -1,3 +1,4 @@
+using Assistant.App.Lifecycle;
 using Assistant.App.Registry;
 using Assistant.App.Runtime;
 using Assistant.App.Support;
@@ -13,7 +14,8 @@ namespace Assistant.App.Tools;
 
 public sealed class AgentBootstrap(
     ChatClientFactory chatClientFactory,
-    IOptions<Settings> settings)
+    IOptions<Settings> settings,
+    ILifecycleSink lifecycle)
 {
     public void Bootstrap(NodeHandle handle)
     {
@@ -33,9 +35,10 @@ public sealed class AgentBootstrap(
         var cfg = settings.Value;
         var instructions = BuildInstructions(handle);
 
-        var injecting = new MailNoticeInjectingChatClient(
+        var injecting = new SystemNotificationInjectingChatClient(
             chatClientFactory.GetChatClient(),
-            handle);
+            handle,
+            lifecycle);
 
         var agent = injecting.AsHarnessAgent(new HarnessAgentOptions
         {
