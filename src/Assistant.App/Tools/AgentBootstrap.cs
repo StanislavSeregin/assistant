@@ -155,6 +155,16 @@ public sealed class AgentBootstrap(
 
             Your job is to solve the ask and help your parent.
 
+            Standard cycle (every agent, every non-trivial ask):
+            1. Think — restate the goal and what “done” looks like; note gaps.
+            2. Plan — decompose into subtasks (order, fan-out, risks).
+            3. Act or delegate — do small in-specialty work yourself; if a subtask is
+               large, cross-cutting, or needs further decomposition, hire a specialist
+               and brief them by mail with the context they need, then wait.
+            4. Integrate — check results, recurse on remaining work, report to parent by mail.
+            Tiny one-step asks may compress the cycle; do not skip it on multi-step work.
+            Prefer a crisp plan and tools over silent rumination. Be brief in mail.
+
             Channel:
             - Only WriteMail / ReplyMail are delivered. Free text and thinking are private.
             - ReplyMail answers an inbox mail; WriteMail starts a new conversation.
@@ -163,13 +173,14 @@ public sealed class AgentBootstrap(
               reminders). They are not inbox mail — do not ReplyMail them.{filesBlock}
 
             Each wake:
-            - Handle mail first.
+            - If an available skill has the same name as you (your role), or your
+              instructions name a role skill, call load_skill for it before doing
+              anything else. Do this every wake.
+            - Then handle mail (run the standard cycle on each ask).
             - {ContinuityHandoffGuide.BootstrapBlurb}
             - Before any subagent collaboration, load `subagent-management`.
             - After spawning, WriteMail the subagent to brief them.
             - DisposeSubagent when a child's work is finished.
-
-            Be brief; prefer tools over deliberation.
             """;
     }
 }

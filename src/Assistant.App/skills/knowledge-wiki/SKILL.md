@@ -1,9 +1,9 @@
 ---
 name: knowledge-wiki
 description: >-
-  REQUIRED when archiving material into a persistent markdown knowledge base
-  (chat text, transcripts, notes) or querying/maintaining that wiki. Load before
-  filing knowledge, updating entity/concept pages, or running wiki lint.
+  Standing playbook for maintaining a markdown knowledge wiki (archive, query,
+  lint). Intended for the Archivist or whoever owns that wiki. Managers should
+  hire an Archivist instead of loading this themselves.
 ---
 
 # Knowledge Wiki

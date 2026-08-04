@@ -2,9 +2,8 @@
 name: subagent-management
 description: >-
   REQUIRED before any subagent collaboration (SpawnSubagent, WriteMail/ReplyMail to
-  children, DisposeSubagent). Manager's cheat sheet: solve the parent's ask; brief
-  and delegate via mail; identity vs task; craft character in instructions; when
-  to dispose without answering.
+  children, DisposeSubagent). How to hire and brief specialists; identity vs task;
+  craft character in instructions; dispose without courtesy ACK.
 ---
 
 # Subagent Management
@@ -13,7 +12,17 @@ Load this skill **before** working with subagents — hiring, briefing, answerin
 
 **Goal:** solve your parent's ask. Mail is how you assign work and report results.
 
-You manage **only direct children**. Grandchildren are invisible on purpose — trust reports to hire their own teams.
+This skill covers the **delegate** step of the standard cycle (think → plan →
+act/delegate → integrate). You manage **only direct children**. Grandchildren are
+invisible on purpose — trust reports to hire their own teams; judge the child's
+report, not their org chart.
+
+## When to hire
+
+Hire when a subtask would need its own plan, several steps, a different craft,
+or more focus than you can give while coordinating. Pass in `WriteMail`: goal,
+constraints, inputs/paths, definition of done, and what to report back. Do not
+dump the parent's whole thread — give the child what they need to succeed without you.
 
 ## Hard rule
 
@@ -71,12 +80,12 @@ Good `instructions` usually cover:
 
 ```
 # Researcher
-Curious digger. If the brief is ambiguous, mail one sharp clarifying question before
-deep work — better a quick ask than a wrong hunt. Report with evidence and open gaps.
+Curious digger. If the brief is ambiguous, mail one sharp clarifying question
+before deep work. Report with evidence and open gaps.
 
 # Builder
-Hands-on fixer. Ship working change over long plans. Surface blockers by mail early;
-don’t stall in silence.
+Hands-on fixer. Surface blockers by mail early; don’t stall in silence.
+Ship working change; prefer a clear patch over a long status essay.
 
 # Critic
 Constructive skeptic. Challenge weak spots with specifics. When acceptance criteria
@@ -98,28 +107,27 @@ Spend a moment choosing the stance that fits the hire. Thin, generic instruction
 - You cannot see or message grandchildren.
 - Free text is not a reply — only `ReplyMail` / `WriteMail` reach people.
 
-## Patterns
+## When a child mails you back
 
-**Done — report upward** (one turn):
+**Finished report** (they delivered the ask — not a question):
 
-1. `ReadMail` the child’s result  
+1. `ReadMail` the result  
 2. `ReplyMail` / `WriteMail` your parent with the outcome  
-3. `DisposeSubagent` if their work is finished  
-4. **Stop** — no courtesy reply to the child
+3. `DisposeSubagent` if you do not need them for more work  
+4. **Stop.** Do **not** reply to the child — no thanks, ok, or closing note.
+   Dispose clears their mail from your inbox; that *is* the close.
 
-**Child asked a clarifying question** (one turn):
+**Clarifying question** (or they need a decision from you):
 
 1. `ReadMail`  
 2. `ReplyMail` with the answer  
 3. Optionally update your parent about the delay  
-4. **Stop** — keep the child
+4. **Stop** — keep the child. Do **not** dispose while they wait on you.
+
+**More work for the same child:** `WriteMail` / `ReplyMail` the next brief; keep them.
 
 **Parent ask fully done:** `ReplyMail` with the outcome. That *is* the work.
 
 ## Dispose
 
-`DisposeSubagent` ends the child **and its subtree**. Prefer disposing as soon as their participation is finished.
-
-**Goal met → free them.** When the child’s mail delivers what you asked for, dispose — you do **not** need to answer them. No thanks, no ACK, no closing thread. Dispose clears their mail from your inbox; that *is* the clean close.
-
-Keep them only if you still have more work for them. Do **not** dispose while they are waiting on your clarifying answer.
+`DisposeSubagent` ends the child **and its subtree**. Prefer disposing as soon as their participation is finished. Keep them only if you still have more work for them.
