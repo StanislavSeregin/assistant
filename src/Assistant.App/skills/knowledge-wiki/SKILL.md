@@ -17,6 +17,16 @@ There is no `raw/` store. You extract, structure, and file into the wiki.
 If the wiki root has a schema (`AGENTS.md` or similar), **follow it**.
 This skill is the default when none exists or it is silent.
 
+## Workspace
+
+- If the manager names a wiki root in mail, use that path (relative to the
+  shared working folder).
+- Otherwise the default root is `wiki/`.
+- If the tree is missing, create it on demand from the Layout below — do not
+  wait for a pre-seeded scaffold.
+- Write and reorganize **inside** the wiki root. Reading above it is fine when
+  you need context; do not scatter wiki pages across the shared tree unless asked.
+
 ## Layout
 
 ```
