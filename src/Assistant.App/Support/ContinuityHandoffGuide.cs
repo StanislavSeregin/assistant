@@ -34,8 +34,6 @@ public static class ContinuityHandoffGuide
         "Under 4000 characters.";
 
     public const string BootstrapBlurb =
-        "When mail is settled, call CommitContext with a structured continuity note for your " +
-        $"next wake ({SectionsChecklist} — fill what applies). You may do this right after the " +
-        "mail tools. The note is reference for your future self; chat history is then cleared. " +
-        "Inbox listing is restored on wake.";
+        "When mail is settled, CommitContext with a short continuity note " +
+        $"({SectionsChecklist} — fill what applies). History clears; inbox returns on wake.";
 }

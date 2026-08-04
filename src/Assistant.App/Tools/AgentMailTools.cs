@@ -67,18 +67,18 @@ public sealed class AgentMailTools(
             AIFunctionFactory.Create(
                 [Description(
                     "Spawn a direct subagent (identity only). Load skill subagent-management first. " +
-                    "Then WriteMail the concrete ask — never put this turn's task in description/instructions. " +
-                    "parentRole = your duty as their manager (not your name; shown to the child).")]
+                    "Then WriteMail a declarative brief (WHAT/material/done — not HOW). " +
+                    "Never put this turn's ask or procedures in description/instructions. " +
+                    "parentRole = your duty as their manager (not your name).")]
                 (
                     [Description("Unique name among your subagents (e.g. Researcher, NumberPicker)")]
                     string name,
                     [Description(
-                        "Stable specialty — who they are across tasks. NOT this turn's ask " +
-                        "(e.g. 'Picks numbers when asked', not 'Pick a number 1-10').")]
+                        "Stable specialty — who they are across tasks. NOT this turn's ask.")]
                     string description,
                     [Description(
-                        "Standing style and constraints only. NOT steps for this one ask — " +
-                        "put the ask in WriteMail after spawn.")]
+                        "Short declarative stance/aspirations only. NOT an imperative script " +
+                        "or this turn's steps — those go in WriteMail as outcomes, not HOW.")]
                     string instructions,
                     [Description("Your duty as their manager (e.g. Manager), not your name")]
                     string parentRole) =>
@@ -87,8 +87,9 @@ public sealed class AgentMailTools(
             AIFunctionFactory.Create(
                 (string name) => DisposeSubagent(agent, activity, name),
                 nameof(DisposeSubagent),
-                "End a direct subagent and its subtree. They are gone: you cannot mail them, " +
-                "they cannot mail you, and their mail is removed from your inbox."),
+                "End a direct subagent and its subtree. Prefer this over mailing them a thanks/ACK. " +
+                "They are gone: you cannot mail them, they cannot mail you, and their mail " +
+                "is removed from your inbox."),
             AIFunctionFactory.Create(
                 [Description(ContinuityHandoffGuide.ToolDescription)]
                 (

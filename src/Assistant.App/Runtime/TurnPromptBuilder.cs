@@ -52,16 +52,10 @@ internal static class TurnPromptBuilder
         }
 
         sb.AppendLine();
-        sb.AppendLine("How this wake works:");
-        sb.AppendLine(
-            "If an available skill has the same name as you (your role), or your " +
-            "instructions name a role skill, call load_skill for it before mail or other tools.");
-        sb.AppendLine(
-            "Then handle the mail. When that is done, call CommitContext with a continuity " +
-            "note for your next wake — you can do it in the same breath as the mail tools.");
         sb.Append(
-            "After CommitContext, chat history is cleared so the next wake starts from your " +
-            "note (as reference) plus the inbox. Treat this wake as one focused stretch of work.");
+            "Wake steps: load your role skill if named (or same name as you); handle mail; " +
+            "CommitContext with a continuity note when mail work is settled. " +
+            "History clears after CommitContext — the note is reference only next wake.");
 
         var listedIds = open.Select(item => item.Id).ToArray();
         return (new ChatMessage(ChatRole.User, sb.ToString()), listedIds);

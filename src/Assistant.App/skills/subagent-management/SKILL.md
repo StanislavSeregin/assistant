@@ -2,47 +2,41 @@
 name: subagent-management
 description: >-
   REQUIRED before any subagent collaboration (SpawnSubagent, WriteMail/ReplyMail to
-  children, DisposeSubagent). How to hire and brief specialists; identity vs task;
-  craft character in instructions; dispose without courtesy ACK.
+  children, DisposeSubagent). Hire/brief mechanics; identity vs task; dispose
+  without courtesy ACK.
 ---
 
 # Subagent Management
 
-Load this skill **before** working with subagents — hiring, briefing, answering, or disposing them.
+Load before hiring, briefing, answering, or disposing subagents.
 
-**Goal:** solve your parent's ask. Mail is how you assign work and report results.
+You manage **only direct children**. Grandchildren are invisible — judge the
+child's report, not their org chart. Children may hire their own help.
 
-This skill covers the **delegate** step of the standard cycle (think → plan →
-act/delegate → integrate). You manage **only direct children**. Grandchildren are
-invisible on purpose — trust reports to hire their own teams; judge the child's
-report, not their org chart.
+## When to hire (default agents)
 
-## When to hire
+Hire when a **subtask** needs its own plan, several steps, a different craft, or
+more focus than you can spare while coordinating. Pass a self-contained brief —
+do not dump the parent's whole thread.
 
-Hire when a subtask would need its own plan, several steps, a different craft,
-or more focus than you can give while coordinating. Pass in `WriteMail`: goal,
-constraints, inputs/paths, definition of done, and what to report back. Do not
-dump the parent's whole thread — give the child what they need to succeed without you.
+(Root managers with a role skill may hire more aggressively; follow that skill.)
 
-## Hard rule
+## Hard rule: spawn ≠ assign
 
 `SpawnSubagent` creates a person. It does **not** assign work.
-The current ask always goes in a **separate** `WriteMail` after spawn.
-Putting the ask in `description` or `instructions` is wrong.
+The ask always goes in a **separate** `WriteMail` after spawn.
 
-**Litmus test:** would this text still fit if you mailed them a *different* task next turn?
+**Litmus:** would this text still fit if you mailed them a *different* task next?
 - Yes → ok for `description` / `instructions`
 - No → put it in `WriteMail`
 
-## Briefing fields (do not mix)
-
 | Field | Put here | Never put here |
 |-------|----------|----------------|
-| `description` | Stable specialty / duty (“who they are”) | Numbers, deadlines, this turn’s ask |
-| `instructions` | Standing character: how they think, talk, and handle uncertainty | Steps for this one ask |
-| `parentRole` | Your duty as their manager (shown to the child) | Your name, or the child’s assignment |
+| `description` | Stable specialty (“who they are”) | This turn’s ask |
+| `instructions` | Standing character / aspirations | Steps for this one ask |
+| `parentRole` | Your duty as their manager | Your name, or their assignment |
 
-**Good** (user asks: pick a number 1–10)
+**Good**
 
 ```
 SpawnSubagent(
@@ -54,29 +48,24 @@ WriteMail(to=NumberPicker, subject=Pick a number,
   body=Pick any integer from 1 to 10 inclusive and reply with just the number.)
 ```
 
-**Bad** (same ask — do not do this)
+**Bad** — ask baked into identity:
 
 ```
-description: Chooses a random number 1–10 and reports it to the manager
+description: Chooses a random number 1–10 and reports it
 instructions: Pick 1–10, mail subject "Chosen number", body = the number. Then stop.
 ```
 
-That whole ask belongs in `WriteMail`; spawn fields must stay reusable for later mails.
-
-Also bad:
-- description: `Find why auth returns 401 and fix it` ← mail body
-- parentRole: `Secretary` ← your *name*; the child already knows it. Use your role (`Manager`, …)
+Also bad: `parentRole: Secretary` (that's a name — use `Manager`).
 
 ## Character in `instructions`
 
-Treat `instructions` as the child’s **stance**, not a script. Aim for a few vivid lines that invite the right habits — compact, human, reusable across tasks. Avoid checklists, “you must”, and turn-specific steps; those feel like chains and belong in mail.
+A few vivid **declarative** lines: stance and aspirations, not a script.
+Reusable across tasks. Never paste this turn’s procedure into `instructions`.
+If a role skill recipe exists (e.g. Archivist), prefer it **verbatim**.
 
-Good `instructions` usually cover:
-- **Voice** — how they show up (curious, pragmatic, skeptical, meticulous…)
-- **Uncertainty** — ask early by mail when the brief is thin; don’t invent missing intent
-- **Delivery** — what a strong reply looks like for this role (evidence, options, a patch…)
+Cover lightly: voice · how they handle thin briefs · what a strong reply looks like.
 
-**Examples** (adapt freely; match the specialty):
+Examples (adapt only when no recipe is given):
 
 ```
 # Researcher
@@ -88,46 +77,52 @@ Hands-on fixer. Surface blockers by mail early; don’t stall in silence.
 Ship working change; prefer a clear patch over a long status essay.
 
 # Critic
-Constructive skeptic. Challenge weak spots with specifics. When acceptance criteria
-are fuzzy, ask what “done” means before grading.
+Constructive skeptic. Challenge weak spots with specifics. When acceptance
+criteria are fuzzy, ask what “done” means before grading.
 ```
 
-Spend a moment choosing the stance that fits the hire. Thin, generic instructions waste the person you just created.
+Thin generic instructions waste the hire; long imperative ones are worse.
+
+## Brief in `WriteMail` (declarative package)
+
+You brief **outcomes and facts**. The child’s role skill owns **methods**.
+
+Include: goal · material/inputs/paths · constraints · definition of done · what
+to report back.
+
+Do **not** include: step-by-step HOW, checklists from a craft skill you loaded,
+or an imperative work script. If you catch yourself writing procedure, delete it —
+keep WHAT and the raw material.
+
+Omit noise from the parent thread. After briefing: **stop** — they wake on mail.
 
 ## After spawn
 
-1. Spawn everyone you need (fan-out is fine).
+1. Spawn who you need (fan-out is fine).
 2. `WriteMail` each with the concrete ask.
 3. Optionally update your parent on progress.
-4. **Stop.** Subagents mail you back on their own.
-
-## Delegation
-
-- Fan out independent work; do not serialize without reason.
-- You cannot see or message grandchildren.
-- Free text is not a reply — only `ReplyMail` / `WriteMail` reach people.
+4. **Stop.**
 
 ## When a child mails you back
 
-**Finished report** (they delivered the ask — not a question):
+**Finished report** (delivered the ask — not a question):
 
-1. `ReadMail` the result  
-2. `ReplyMail` / `WriteMail` your parent with the outcome  
-3. `DisposeSubagent` if you do not need them for more work  
-4. **Stop.** Do **not** reply to the child — no thanks, ok, or closing note.
-   Dispose clears their mail from your inbox; that *is* the close.
+1. `ReadMail`
+2. Integrate; `ReplyMail` / `WriteMail` your parent if the parent ask is done
+3. `DisposeSubagent` if you need them no further
+4. **Stop. Do not reply to the child** — no thanks, ok, or closing note.
+   Dispose clears their mail from your inbox; that is the close.
 
-**Clarifying question** (or they need a decision from you):
+**Clarifying question** (needs a decision):
 
-1. `ReadMail`  
-2. `ReplyMail` with the answer  
-3. Optionally update your parent about the delay  
-4. **Stop** — keep the child. Do **not** dispose while they wait on you.
+1. `ReadMail`
+2. `ReplyMail` the answer
+3. Optionally tell your parent about the delay
+4. **Stop** — keep the child. Do not dispose while they wait on you.
 
-**More work for the same child:** `WriteMail` / `ReplyMail` the next brief; keep them.
-
-**Parent ask fully done:** `ReplyMail` with the outcome. That *is* the work.
+**More work for the same child:** next brief by mail; keep them.
 
 ## Dispose
 
-`DisposeSubagent` ends the child **and its subtree**. Prefer disposing as soon as their participation is finished. Keep them only if you still have more work for them.
+`DisposeSubagent` ends the child **and its subtree**. Dispose as soon as their
+participation is finished. Keep only if more work remains for them.

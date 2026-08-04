@@ -1,9 +1,9 @@
 ---
 name: knowledge-wiki
 description: >-
-  Standing playbook for maintaining a markdown knowledge wiki (archive, query,
-  lint). Intended for the Archivist or whoever owns that wiki. Managers should
-  hire an Archivist instead of loading this themselves.
+  Craft playbook for the Archivist (or wiki owner) only. Secretary / managers:
+  do NOT load — hire an Archivist and brief by mail. Loading this as a manager
+  is wrong.
 ---
 
 # Knowledge Wiki
@@ -51,6 +51,10 @@ Adapt category folders to the domain. Keep the tree as nested folders and markdo
 5. **Record provenance.** Link claims to an `intakes/` page (and note date / channel when known).
 6. **Flag contradictions** on the affected pages; do not silently overwrite.
 7. **Do not invent facts.** If the material is thin, say what is missing.
+8. **Scope lock.** File only claims present in this batch (or a clear ask). Do not expand
+   into adjacent topics, guess domain essays, or “enrich” from general knowledge.
+   A team named Identity is a team name — not a cue to write about auth or design patterns
+   unless the material says so. Thin batch → thin pages. Stop when the stated facts are filed.
 
 ## Conventions
 
@@ -115,15 +119,19 @@ Actions: `archive`, `query`, `lint`, `refile`.
 
 When material arrives in chat/mail:
 
-1. Read the full batch. Clarify emphasis only if ambiguous.
-2. Write `intakes/<date>-<short-slug>.md` — what arrived, key takeaways, pages touched.
-3. Update or create related entity / concept / synthesis pages.
-4. Wire cross-links both ways where useful.
+1. Read the full batch. List the **stated claims** only. Clarify only if the ask
+   itself is ambiguous — not to fish for extra topics.
+2. Write `intakes/<date>-<short-slug>.md` — what arrived, claims filed, pages touched.
+3. Update or create pages for those claims (usually one entity / a few facts).
+   Do **not** open `concepts/` or `synthesis/` unless the batch explicitly contains
+   that content or the ask requests it.
+4. Wire cross-links only where the batch already relates things.
 5. Refresh `index.md`.
 6. Append a log entry.
-7. Confirm briefly what was filed (paths), then stop unless asked more.
+7. Confirm briefly what was filed (paths), then stop.
 
-One batch may touch many pages. Prefer depth on the affected cluster over empty stubs.
+Minimalism wins: a short intro about a person → one intake + one entity page,
+not a mini-encyclopedia.
 
 ### Query
 
