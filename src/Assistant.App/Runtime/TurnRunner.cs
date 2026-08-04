@@ -246,7 +246,40 @@ public sealed class TurnRunner(
                 invocation.Arguments);
         }
 
-        var result = await invocation.Function.InvokeAsync(invocation.Arguments, cancellationToken);
+        object? result;
+        try
+        {
+            result = await invocation.Function.InvokeAsync(invocation.Arguments, cancellationToken);
+        }
+        catch (Exception ex) when (ShouldReturnToolError(ex, scope?.Agent, cancellationToken))
+        {
+            var message = string.IsNullOrWhiteSpace(ex.Message)
+                ? ex.GetType().Name
+                : ex.Message;
+
+            if (shouldPublish)
+            {
+                // Arg-bearing calls already logged intent; surface the failure explicitly.
+                // No-arg calls still need a ToolCalled line (normally published after success).
+                if (hasArguments)
+                {
+                    lifecycle.Publish(new ErrorEvent(
+                        agentName,
+                        $"{invocation.Function.Name}: {message}"));
+                }
+                else
+                {
+                    PublishToolCall(
+                        agentName,
+                        invocation.Function.Name,
+                        callId,
+                        origin,
+                        result: message);
+                }
+            }
+
+            return message;
+        }
 
         // No-arg calls (ListInbox, GetRecipients, …): show what the agent received.
         if (shouldPublish && !hasArguments)
@@ -260,6 +293,24 @@ public sealed class TurnRunner(
         }
 
         return result;
+    }
+
+    private static bool ShouldReturnToolError(
+        Exception ex,
+        NodeHandle? agent,
+        CancellationToken cancellationToken)
+    {
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+
+        if (agent is not null && NodeShutdown.IsBenign(ex, agent, cancellationToken))
+        {
+            return false;
+        }
+
+        return true;
     }
 
     private async Task RunModelAsync(

@@ -30,4 +30,10 @@ public class Settings
     /// Path to the LiteDB state file. Empty = %LocalAppData%/Assistant/state.litedb.
     /// </summary>
     public string StateDbPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Shared folder each agent can read/write via file_access_* tools.
+    /// Empty = file access disabled.
+    /// </summary>
+    public string AgentFileAccessPath { get; set; } = string.Empty;
 }

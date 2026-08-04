@@ -175,6 +175,11 @@ public sealed class LifecycleLogPresenter
             return $"{toolCall.ToolName} · {skillName}";
         }
 
+        if (IsFileAccessTool(toolCall.ToolName))
+        {
+            return FormatFileAccessHeader(toolCall);
+        }
+
         return toolCall.ToolName;
     }
 
@@ -183,6 +188,11 @@ public sealed class LifecycleLogPresenter
         if (IsSkillTool(toolCall.ToolName))
         {
             return null;
+        }
+
+        if (IsFileAccessTool(toolCall.ToolName))
+        {
+            return FormatFileAccessBody(toolCall);
         }
 
         if (toolCall.Arguments is { Count: > 0 } arguments)
@@ -197,6 +207,133 @@ public sealed class LifecycleLogPresenter
 
     private static bool IsSkillTool(string toolName) =>
         toolName is "load_skill" or "read_skill_resource" or "run_skill_script";
+
+    private static bool IsFileAccessTool(string toolName) =>
+        toolName.StartsWith("file_access_", StringComparison.Ordinal);
+
+    private static string FormatFileAccessHeader(ToolCalled toolCall)
+    {
+        if (TryGetArgument(toolCall, "fileName", out var fileName))
+        {
+            return $"{toolCall.ToolName} · {fileName}";
+        }
+
+        if (toolCall.ToolName is "file_access_grep"
+            && TryGetArgument(toolCall, "regexPattern", out var pattern))
+        {
+            return $"{toolCall.ToolName} · {pattern}";
+        }
+
+        if (toolCall.ToolName is "file_access_ls")
+        {
+            var directory = TryGetArgument(toolCall, "directory", out var dir)
+                ? dir
+                : ".";
+            return $"{toolCall.ToolName} · {directory}";
+        }
+
+        return toolCall.ToolName;
+    }
+
+    private static string? FormatFileAccessBody(ToolCalled toolCall)
+    {
+        if (toolCall.Arguments is not { Count: > 0 })
+        {
+            return string.IsNullOrWhiteSpace(toolCall.Result) ? null : toolCall.Result;
+        }
+
+        var lines = new List<string>();
+
+        switch (toolCall.ToolName)
+        {
+            case "file_access_write":
+                if (TryGetArgument(toolCall, "overwrite", out var overwrite))
+                {
+                    lines.Add($"overwrite: {overwrite}");
+                }
+
+                if (TryGetArgument(toolCall, "content", out var content))
+                {
+                    lines.Add(SummarizeContent(content));
+                }
+
+                break;
+
+            case "file_access_ls":
+                if (TryGetArgument(toolCall, "globPattern", out var lsGlob))
+                {
+                    lines.Add($"glob: {lsGlob}");
+                }
+
+                break;
+
+            case "file_access_grep":
+                if (TryGetArgument(toolCall, "directory", out var grepDir))
+                {
+                    lines.Add($"directory: {grepDir}");
+                }
+
+                if (TryGetArgument(toolCall, "globPattern", out var grepGlob))
+                {
+                    lines.Add($"glob: {grepGlob}");
+                }
+
+                break;
+
+            case "file_access_replace":
+                if (TryGetArgument(toolCall, "oldString", out var oldString))
+                {
+                    lines.Add($"old: {TruncateForLog(oldString)}");
+                }
+
+                if (TryGetArgument(toolCall, "newString", out var newString))
+                {
+                    lines.Add($"new: {TruncateForLog(newString)}");
+                }
+
+                if (TryGetArgument(toolCall, "replaceAll", out var replaceAll))
+                {
+                    lines.Add($"replaceAll: {replaceAll}");
+                }
+
+                break;
+
+            case "file_access_replace_lines":
+                if (TryGetArgument(toolCall, "edits", out var edits))
+                {
+                    lines.Add($"edits: {TruncateForLog(edits)}");
+                }
+
+                break;
+
+            // read / delete: path already in the header
+        }
+
+        if (lines.Count > 0)
+        {
+            return string.Join(Environment.NewLine, lines);
+        }
+
+        return string.IsNullOrWhiteSpace(toolCall.Result) ? null : toolCall.Result;
+    }
+
+    private static string SummarizeContent(string content)
+    {
+        var charCount = content.Length;
+        var lineCount = content.ReplaceLineEndings("\n").Split('\n').Length;
+        return $"content: {charCount} chars, {lineCount} lines";
+    }
+
+    private static string TruncateForLog(string value, int maxChars = 120)
+    {
+        var singleLine = value.ReplaceLineEndings(" ").Trim();
+        if (singleLine.Length <= maxChars)
+        {
+            return singleLine;
+        }
+
+        return singleLine[..maxChars] + "…";
+    }
 
     private static bool TryGetArgument(ToolCalled toolCall, string key, out string value)
     {

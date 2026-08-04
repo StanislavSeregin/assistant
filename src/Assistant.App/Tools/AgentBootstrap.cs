@@ -10,6 +10,8 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
+#pragma warning disable MAAI001 // FileAccessProvider / AgentFileStore are evaluation-only APIs.
+
 namespace Assistant.App.Tools;
 
 public sealed class AgentBootstrap(
@@ -17,6 +19,10 @@ public sealed class AgentBootstrap(
     IOptions<Settings> settings,
     ILifecycleSink lifecycle)
 {
+    private readonly object _fileAccessGate = new();
+    private AgentFileStore? _sharedFileAccessStore;
+    private string? _sharedFileAccessRoot;
+
     public void Bootstrap(NodeHandle handle)
     {
         BootstrapAsync(handle, CancellationToken.None).GetAwaiter().GetResult();
@@ -33,7 +39,8 @@ public sealed class AgentBootstrap(
         }
 
         var cfg = settings.Value;
-        var instructions = BuildInstructions(handle);
+        var fileAccessStore = GetOrCreateFileAccessStore(cfg);
+        var instructions = BuildInstructions(handle, fileAccessEnabled: fileAccessStore is not null);
 
         var injecting = new SystemNotificationInjectingChatClient(
             chatClientFactory.GetChatClient(),
@@ -49,6 +56,14 @@ public sealed class AgentBootstrap(
                 Instructions = instructions
             },
             AIContextProviders = CreateSkillsProviders(cfg),
+            FileAccessStore = fileAccessStore,
+            FileAccessProviderOptions = fileAccessStore is null
+                ? null
+                : new FileAccessProviderOptions
+                {
+                    DisableReadOnlyToolApproval = true,
+                    DisableWriteToolApproval = true
+                },
             DisableAgentModeProvider = true,
             DisableWebSearch = true,
             DisableFileMemory = true,
@@ -58,6 +73,29 @@ public sealed class AgentBootstrap(
 
         var session = await agent.CreateSessionAsync(cancellationToken);
         llm.BindSession(agent, session);
+    }
+
+    private AgentFileStore? GetOrCreateFileAccessStore(Settings settings)
+    {
+        if (string.IsNullOrWhiteSpace(settings.AgentFileAccessPath))
+        {
+            return null;
+        }
+
+        var root = Path.GetFullPath(settings.AgentFileAccessPath);
+
+        lock (_fileAccessGate)
+        {
+            if (_sharedFileAccessStore is not null
+                && string.Equals(_sharedFileAccessRoot, root, StringComparison.OrdinalIgnoreCase))
+            {
+                return _sharedFileAccessStore;
+            }
+
+            _sharedFileAccessRoot = root;
+            _sharedFileAccessStore = new FileSystemAgentFileStore(root);
+            return _sharedFileAccessStore;
+        }
     }
 
     private static AIContextProvider[]? CreateSkillsProviders(Settings settings)
@@ -83,7 +121,7 @@ public sealed class AgentBootstrap(
         ];
     }
 
-    public static string BuildInstructions(NodeHandle handle)
+    public static string BuildInstructions(NodeHandle handle, bool fileAccessEnabled = false)
     {
         var roleBlock = string.IsNullOrWhiteSpace(handle.Instructions)
             ? string.Empty
@@ -97,6 +135,16 @@ public sealed class AgentBootstrap(
         var parentLabel = string.IsNullOrWhiteSpace(handle.ParentDescription)
             ? parentName
             : $"{parentName} ({handle.ParentDescription.Trim()})";
+
+        var filesBlock = fileAccessEnabled
+            ? """
+
+
+            Files:
+            - Use file_access_* tools for the shared working folder (read, write, ls, grep, replace, delete).
+            - Paths are relative to that folder; the same folder is shared across agents.
+            """
+            : string.Empty;
 
         return $"""
             You are {handle.Name}. {handle.Description}.{roleBlock}
@@ -112,7 +160,7 @@ public sealed class AgentBootstrap(
             - ReplyMail answers an inbox mail; WriteMail starts a new conversation.
             - You can mail your parent and your direct subagents (GetRecipients).
             - Messages prefixed [SYSTEM] are runtime notices (wake, continuity, gentle
-              reminders). They are not inbox mail — do not ReplyMail them.
+              reminders). They are not inbox mail — do not ReplyMail them.{filesBlock}
 
             Each wake:
             - Handle mail first.
