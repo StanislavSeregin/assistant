@@ -3,9 +3,11 @@ using Assistant.App.Registry;
 using Assistant.App.Runtime;
 using Assistant.App.Support;
 using Microsoft.Agents.AI;
+using Microsoft.Agents.AI.Tools.Shell;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,6 +24,13 @@ public sealed class AgentBootstrap(
     private readonly object _fileAccessGate = new();
     private AgentFileStore? _sharedFileAccessStore;
     private string? _sharedFileAccessRoot;
+    private LocalShellExecutor? _sharedShell;
+    private AITool? _sharedShellTool;
+
+    /// <summary>
+    /// Auto-approved <c>run_shell</c> tool scoped to <see cref="Settings.AgentFileAccessPath"/>, or null when disabled.
+    /// </summary>
+    public AITool? ShellTool => _sharedShellTool;
 
     public void Bootstrap(NodeHandle handle)
     {
@@ -40,7 +49,12 @@ public sealed class AgentBootstrap(
 
         var cfg = settings.Value;
         var fileAccessStore = GetOrCreateFileAccessStore(cfg);
-        var instructions = BuildInstructions(handle, fileAccessEnabled: fileAccessStore is not null);
+        var shell = GetOrCreateShell(cfg);
+        var shellEnabled = shell is not null;
+        var instructions = BuildInstructions(
+            handle,
+            fileAccessEnabled: fileAccessStore is not null,
+            shellEnabled: shellEnabled);
 
         var injecting = new SystemNotificationInjectingChatClient(
             chatClientFactory.GetChatClient(),
@@ -55,7 +69,7 @@ public sealed class AgentBootstrap(
             {
                 Instructions = instructions
             },
-            AIContextProviders = CreateSkillsProviders(cfg),
+            AIContextProviders = CreateContextProviders(cfg, shell),
             FileAccessStore = fileAccessStore,
             FileAccessProviderOptions = fileAccessStore is null
                 ? null
@@ -92,36 +106,88 @@ public sealed class AgentBootstrap(
                 return _sharedFileAccessStore;
             }
 
+            Directory.CreateDirectory(root);
             _sharedFileAccessRoot = root;
             _sharedFileAccessStore = new FileSystemAgentFileStore(root);
             return _sharedFileAccessStore;
         }
     }
 
-    private static AIContextProvider[]? CreateSkillsProviders(Settings settings)
+    private LocalShellExecutor? GetOrCreateShell(Settings settings)
     {
-        if (!settings.EnableAgentSkills)
+        if (string.IsNullOrWhiteSpace(settings.AgentFileAccessPath))
         {
             return null;
         }
 
-        var skillsPath = Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory, settings.SkillsPath));
+        var root = Path.GetFullPath(settings.AgentFileAccessPath);
 
-        return
-        [
-            new AgentSkillsProvider(
-                skillsPath,
-                options: new AgentSkillsProviderOptions
-                {
-                    DisableLoadSkillApproval = true,
-                    DisableReadSkillResourceApproval = true,
-                    DisableRunSkillScriptApproval = true
-                })
-        ];
+        lock (_fileAccessGate)
+        {
+            if (_sharedShell is not null
+                && string.Equals(_sharedFileAccessRoot, root, StringComparison.OrdinalIgnoreCase))
+            {
+                return _sharedShell;
+            }
+
+            Directory.CreateDirectory(root);
+            _sharedFileAccessRoot = root;
+            _sharedShell = new LocalShellExecutor(new LocalShellExecutorOptions
+            {
+                Mode = ShellMode.Stateless,
+                WorkingDirectory = root,
+                ConfineWorkingDirectory = true,
+                AcknowledgeUnsafe = true,
+                Timeout = TimeSpan.FromSeconds(30),
+                Policy = new ShellPolicy(denyList:
+                [
+                    @"\brm\s+-rf\b",
+                    @"\bsudo\b",
+                    @":\(\)\s*\{",
+                    @"\bmkfs\b",
+                    @">\s*/dev/sd",
+                    @"\bFormat-Volume\b",
+                    @"\bRemove-Item\s+.*-Recurse\b",
+                ]),
+            });
+            // Harness 1.16 cannot take ShellExecutor; wire the tool ourselves (auto-approved).
+            _sharedShellTool = _sharedShell.AsAIFunction(requireApproval: false);
+            return _sharedShell;
+        }
     }
 
-    public static string BuildInstructions(NodeHandle handle, bool fileAccessEnabled = false)
+    private static AIContextProvider[]? CreateContextProviders(Settings settings, ShellExecutor? shell)
+    {
+        var providers = new List<AIContextProvider>();
+
+        if (settings.EnableAgentSkills)
+        {
+            var skillsPath = Path.GetFullPath(
+                Path.Combine(AppContext.BaseDirectory, settings.SkillsPath));
+
+            providers.Add(
+                new AgentSkillsProvider(
+                    skillsPath,
+                    options: new AgentSkillsProviderOptions
+                    {
+                        DisableLoadSkillApproval = true,
+                        DisableReadSkillResourceApproval = true,
+                        DisableRunSkillScriptApproval = true
+                    }));
+        }
+
+        if (shell is not null)
+        {
+            providers.Add(new ShellEnvironmentProvider(shell));
+        }
+
+        return providers.Count > 0 ? providers.ToArray() : null;
+    }
+
+    public static string BuildInstructions(
+        NodeHandle handle,
+        bool fileAccessEnabled = false,
+        bool shellEnabled = false)
     {
         var roleBlock = string.IsNullOrWhiteSpace(handle.Instructions)
             ? string.Empty
@@ -145,6 +211,14 @@ public sealed class AgentBootstrap(
             - Paths are relative to that folder; the same folder is shared across agents.
             """
             : string.Empty;
+
+        if (shellEnabled)
+        {
+            filesBlock += """
+
+            - Use run_shell for rename, move, and other shell work in that same folder (PowerShell on this host).
+            """;
+        }
 
         return $"""
             You are {handle.Name}. {handle.Description}.{roleBlock}
