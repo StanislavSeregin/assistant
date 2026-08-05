@@ -257,6 +257,8 @@ public sealed class AgentBootstrap(
             Channel:
             - Only WriteMail / ReplyMail are delivered. Free text is private.
             - ReplyMail answers inbox mail; WriteMail starts a new thread.
+            - ReplyMail body = your new text only; the prior thread is appended
+              automatically from the mail you are answering.
             - [SYSTEM] lines are runtime notices — never ReplyMail them.{filesBlock}
 
             Each wake:

@@ -59,7 +59,8 @@ public sealed class AgentMailTools(
             AIFunctionFactory.Create(
                 (string mailId, string body) => ReplyMail(agent, activity, mailId, body),
                 nameof(ReplyMail),
-                "Reply to an inbox mail by id. This is how the sender receives your answer."),
+                "Reply to an inbox mail by id with your new answer only — " +
+                "prior messages are appended automatically from the mail you are answering."),
             AIFunctionFactory.Create(
                 (string mailId) => DeleteMail(agent, activity, mailId),
                 nameof(DeleteMail),

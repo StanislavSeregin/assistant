@@ -154,7 +154,7 @@ public sealed class MailService(
             from.Name,
             ResolveDisplayName(toId, original.From),
             subject,
-            body,
+            MailReplyBody.Compose(body, original),
             isFromParent: IsParentOf(from.Id, toId),
             threadId: original.ThreadId);
 
