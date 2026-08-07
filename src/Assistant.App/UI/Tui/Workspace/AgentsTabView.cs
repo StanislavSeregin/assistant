@@ -249,10 +249,14 @@ internal sealed class AgentsListScreen : View
         {
             var child = _items[i];
             var activity = _workspace.GetAgentActivity(child.Name);
+            var body = activity.ActiveActor is { } actor
+                ? $"[{child.Name}] · {actor}"
+                : $"[{child.Name}]";
             rows[i] = new AgentListRow(
                 child.Name,
                 activity.IsBusy,
-                activity.ActiveActor);
+                activity.ActiveActor,
+                body);
         }
 
         _list.SetItems(rows);

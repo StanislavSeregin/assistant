@@ -48,6 +48,9 @@ internal static class TextWrapping
             return text[..width];
         }
 
-        return text.Length < width ? text + new string(' ', width - text.Length) : text;
+        return text.Length < width
+            ? string.Concat(text, PadCache.Spaces(width - text.Length))
+            : text;
     }
 }
+

@@ -13,7 +13,8 @@ namespace Assistant.App.UI.Tui.Workspace;
 internal sealed record AgentListRow(
     string Name,
     bool IsBusy,
-    string? ActiveActor);
+    string? ActiveActor,
+    string Body);
 
 /// <summary>
 /// Agents list with scheme-driven selection. Busy glyph is green (same accent as inbox NEW);
@@ -33,9 +34,13 @@ internal sealed class AgentsListView : View
     /// <summary>Idle spacer matches <c>glyph + space</c> so the bracket column stays put.</summary>
     private const string IdlePrefix = "  ";
 
+    /// <summary>Column of the braille spinner (after <see cref="LeftPad"/>).</summary>
+    private const int GlyphColumn = 1;
+
     private IReadOnlyList<AgentListRow> _items = [];
     private int _selected;
     private int _spinFrame;
+    private bool _spinGlyphOnly;
 
     public AgentsListView()
     {
@@ -98,12 +103,21 @@ internal sealed class AgentsListView : View
         _spinFrame++;
         // Skip invalidate while another tab is front — redrawing this page steals
         // Tabs header chrome even though Inbox content is showing.
-        RequestDraw();
+        if (!IsFrontTabPage())
+        {
+            return;
+        }
+
+        // Only the braille column changes — avoid a full-list string rebuild every 80ms.
+        _spinGlyphOnly = true;
+        var height = Math.Max(1, Viewport.Height);
+        SetNeedsDraw(new System.Drawing.Rectangle(GlyphColumn, 0, 1, height));
     }
 
     public void ResetSpin()
     {
         _spinFrame = 0;
+        _spinGlyphOnly = false;
         RequestDraw();
     }
 
@@ -115,6 +129,7 @@ internal sealed class AgentsListView : View
     {
         if (IsFrontTabPage())
         {
+            _spinGlyphOnly = false;
             SetNeedsDraw();
         }
     }
@@ -136,6 +151,11 @@ internal sealed class AgentsListView : View
     {
         UpdateContentSize();
 
+        if (TryDrawSpinGlyphsOnly())
+        {
+            return true;
+        }
+
         var width = Math.Max(1, Viewport.Width);
         var height = Math.Max(1, Viewport.Height);
         var top = Math.Clamp(Viewport.Y, 0, Math.Max(0, _items.Count - 1));
@@ -149,11 +169,57 @@ internal sealed class AgentsListView : View
             if (index >= _items.Count)
             {
                 SetAttribute(GetAttributeForRole(VisualRole.Normal));
-                AddStr(new string(' ', width));
+                AddStr(PadCache.Spaces(width));
                 continue;
             }
 
             DrawRow(_items[index], selected: index == _selected, width, glyph);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Spin ticks dirty only the glyph column; rewrite those cells without rebuilding row text.
+    /// </summary>
+    private bool TryDrawSpinGlyphsOnly()
+    {
+        if (!_spinGlyphOnly)
+        {
+            return false;
+        }
+
+        _spinGlyphOnly = false;
+
+        var height = Math.Max(1, Viewport.Height);
+        var top = Math.Clamp(Viewport.Y, 0, Math.Max(0, _items.Count - 1));
+        var glyph = SpinFrames[_spinFrame % SpinFrames.Length];
+
+        for (var row = 0; row < height; row++)
+        {
+            var index = top + row;
+            if (index >= _items.Count)
+            {
+                continue;
+            }
+
+            var item = _items[index];
+            var role = index == _selected
+                ? (HasFocus ? VisualRole.Focus : VisualRole.Active)
+                : VisualRole.Normal;
+            var rowAttr = GetAttributeForRole(role);
+
+            if (item.IsBusy)
+            {
+                SetAttribute(new Attribute(TuiStatusColors.AccentGreen, rowAttr.Background, rowAttr.Style));
+                AddStr(GlyphColumn, row, glyph);
+            }
+            else
+            {
+                // Framework may have cleared this dirty cell; restore the idle spacer.
+                SetAttribute(rowAttr);
+                AddStr(GlyphColumn, row, " ");
+            }
         }
 
         return true;
@@ -166,32 +232,91 @@ internal sealed class AgentsListView : View
             : VisualRole.Normal;
         var rowAttr = GetAttributeForRole(role);
 
-        var body = item.ActiveActor is { } actor
-            ? $"[{item.Name}] · {actor}"
-            : $"[{item.Name}]";
-
         if (!item.IsBusy)
         {
             SetAttribute(rowAttr);
-            AddStr(TextWrapping.Fit(LeftPad + IdlePrefix + body, width));
+            AddFitted(LeftPad, IdlePrefix, item.Body, width);
             return;
         }
 
-        var prefix = LeftPad + glyph + " ";
+        // prefix = LeftPad + glyph + " "  (length 3)
+        const int busyPrefixLen = 3;
         var glyphAttr = new Attribute(TuiStatusColors.AccentGreen, rowAttr.Background, rowAttr.Style);
-        if (prefix.Length >= width)
+        if (busyPrefixLen >= width)
         {
-            SetAttribute(glyphAttr);
-            AddStr(TextWrapping.Fit(prefix, width));
+            // Extremely narrow viewport: paint what fits of pad+glyph(+space).
+            SetAttribute(rowAttr);
+            AddStr(LeftPad);
+            if (width >= 2)
+            {
+                SetAttribute(glyphAttr);
+                AddStr(glyph);
+            }
+
             return;
         }
 
         SetAttribute(rowAttr);
         AddStr(LeftPad);
         SetAttribute(glyphAttr);
-        AddStr(glyph + " ");
+        AddStr(glyph);
         SetAttribute(rowAttr);
-        AddStr(TextWrapping.Fit(body, width - prefix.Length));
+        AddStr(" ");
+        AddFitted(item.Body, width - busyPrefixLen);
+    }
+
+    private void AddFitted(string text, int width)
+    {
+        if (width <= 0)
+        {
+            return;
+        }
+
+        if (text.Length > width)
+        {
+            AddStr(text[..width]);
+            return;
+        }
+
+        AddStr(text);
+        if (text.Length < width)
+        {
+            AddStr(PadCache.Spaces(width - text.Length));
+        }
+    }
+
+    private void AddFitted(string a, string b, string c, int width)
+    {
+        if (width <= 0)
+        {
+            return;
+        }
+
+        var used = 0;
+        used += AddClipped(a, width - used);
+        used += AddClipped(b, width - used);
+        used += AddClipped(c, width - used);
+        if (used < width)
+        {
+            AddStr(PadCache.Spaces(width - used));
+        }
+    }
+
+    private int AddClipped(string text, int remaining)
+    {
+        if (remaining <= 0 || text.Length == 0)
+        {
+            return 0;
+        }
+
+        if (text.Length <= remaining)
+        {
+            AddStr(text);
+            return text.Length;
+        }
+
+        AddStr(text[..remaining]);
+        return remaining;
     }
 
     private int IndexOfName(string name)
