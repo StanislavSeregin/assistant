@@ -48,8 +48,8 @@ public sealed class CoalescingLogSink : ILogSink, IDisposable
 
     public void BlankLine() => Enqueue(() => _buffer.BlankLine());
 
-    public void Header(string text, LogTone tone, DateTime timestamp) =>
-        Enqueue(() => _buffer.Header(text, tone, timestamp));
+    public void Header(string text, LogTone tone, DateTime timestamp, string[]? nameAccents = null) =>
+        Enqueue(() => _buffer.Header(text, tone, timestamp, nameAccents));
 
     public void BodyLine(string text, LogTone tone) =>
         Enqueue(() => _buffer.BodyLine(text, tone));
@@ -57,8 +57,8 @@ public sealed class CoalescingLogSink : ILogSink, IDisposable
     public void AppendInline(string text, LogTone tone) =>
         Enqueue(() => _buffer.AppendInline(text, tone));
 
-    public void Footer(string? text = null, LogTone tone = LogTone.Dim) =>
-        Enqueue(() => _buffer.Footer(text, tone));
+    public void Footer(string? text = null, LogTone tone = LogTone.Dim, string[]? nameAccents = null) =>
+        Enqueue(() => _buffer.Footer(text, tone, nameAccents));
 
     public void Dispose()
     {

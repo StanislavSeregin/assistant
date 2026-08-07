@@ -1,32 +1,43 @@
-using Assistant.App.Mail;
 using Assistant.App.UI.Formatting;
 using System;
 using System.Collections.Generic;
 using Terminal.Gui.Drawing;
 using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
+using Terminal.Gui.Views;
 using Attribute = Terminal.Gui.Drawing.Attribute;
-using Color = Terminal.Gui.Drawing.Color;
 using Size = System.Drawing.Size;
 
 namespace Assistant.App.UI.Tui.Workspace;
 
+internal sealed record AgentListRow(
+    string Name,
+    bool IsBusy,
+    string? ActiveActor);
+
 /// <summary>
-/// Inbox list with scheme-driven selection/focus. Only the NEW marker uses a distinct
-/// foreground; the rest of the row keeps Normal/Focus/Active attributes.
+/// Agents list with scheme-driven selection. Busy glyph is green (same accent as inbox NEW);
+/// the rest of the row keeps Normal/Focus/Active attributes.
+/// Layout: <c>{glyph?} [Name]{ · actor?}</c>
 /// </summary>
-internal sealed class InboxListView : View
+internal sealed class AgentsListView : View
 {
-    private const string NewMarker = "NEW ";
-    private const string ReadMarker = "    ";
+    private static readonly string[] SpinFrames =
+    [
+        "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"
+    ];
 
-    /// <summary>Dark green stays readable on both normal and focused (gray) row backgrounds.</summary>
-    private static readonly Color NewMarkerForeground = TuiStatusColors.AccentGreen;
+    /// <summary>Leading gutter so the glyph is not flush with the frame.</summary>
+    private const string LeftPad = " ";
 
-    private IReadOnlyList<InboxItem> _items = [];
+    /// <summary>Idle spacer matches <c>glyph + space</c> so the bracket column stays put.</summary>
+    private const string IdlePrefix = "  ";
+
+    private IReadOnlyList<AgentListRow> _items = [];
     private int _selected;
+    private int _spinFrame;
 
-    public InboxListView()
+    public AgentsListView()
     {
         CanFocus = true;
         TabStop = TabBehavior.TabStop;
@@ -54,16 +65,23 @@ internal sealed class InboxListView : View
 
     public event Action? AcceptSelected;
 
-    public InboxItem? SelectedItem =>
+    public AgentListRow? SelectedItem =>
         _selected >= 0 && _selected < _items.Count ? _items[_selected] : null;
 
-    public void SetItems(IReadOnlyList<InboxItem> items)
+    public void SetItems(IReadOnlyList<AgentListRow> items)
     {
+        var selectedName = SelectedItem?.Name;
         _items = items ?? [];
         if (_items.Count == 0)
         {
             _selected = 0;
             Viewport = Viewport with { Y = 0 };
+        }
+        else if (selectedName is not null)
+        {
+            var index = IndexOfName(selectedName);
+            _selected = index >= 0 ? index : Math.Clamp(_selected, 0, _items.Count - 1);
+            EnsureSelectionVisible();
         }
         else
         {
@@ -72,7 +90,46 @@ internal sealed class InboxListView : View
         }
 
         UpdateContentSize();
-        SetNeedsDraw();
+        RequestDraw();
+    }
+
+    public void AdvanceSpin()
+    {
+        _spinFrame++;
+        // Skip invalidate while another tab is front — redrawing this page steals
+        // Tabs header chrome even though Inbox content is showing.
+        RequestDraw();
+    }
+
+    public void ResetSpin()
+    {
+        _spinFrame = 0;
+        RequestDraw();
+    }
+
+    /// <summary>
+    /// Inactive Tabs pages stay in the tree; SetNeedsDraw on them makes that page's
+    /// header look selected. Only invalidate when our page is the Tabs value.
+    /// </summary>
+    private void RequestDraw()
+    {
+        if (IsFrontTabPage())
+        {
+            SetNeedsDraw();
+        }
+    }
+
+    private bool IsFrontTabPage()
+    {
+        for (View? view = this; view is not null; view = view.SuperView)
+        {
+            if (view.SuperView is Tabs tabs)
+            {
+                return ReferenceEquals(tabs.Value, view);
+            }
+        }
+
+        return Visible;
     }
 
     protected override bool OnDrawingContent(DrawContext? context)
@@ -82,6 +139,7 @@ internal sealed class InboxListView : View
         var width = Math.Max(1, Viewport.Width);
         var height = Math.Max(1, Viewport.Height);
         var top = Math.Clamp(Viewport.Y, 0, Math.Max(0, _items.Count - 1));
+        var glyph = SpinFrames[_spinFrame % SpinFrames.Length];
 
         for (var row = 0; row < height; row++)
         {
@@ -95,39 +153,58 @@ internal sealed class InboxListView : View
                 continue;
             }
 
-            DrawRow(_items[index], selected: index == _selected, width);
+            DrawRow(_items[index], selected: index == _selected, width, glyph);
         }
 
         return true;
     }
 
-    private void DrawRow(InboxItem item, bool selected, int width)
+    private void DrawRow(AgentListRow item, bool selected, int width, string glyph)
     {
         var role = selected
             ? (HasFocus ? VisualRole.Focus : VisualRole.Active)
             : VisualRole.Normal;
         var rowAttr = GetAttributeForRole(role);
-        var rest = $"{MailTimestamp.FormatUtc(item.Timestamp)}  {item.From}  {item.Subject}";
 
-        if (item.Status != MailStatus.New)
+        var body = item.ActiveActor is { } actor
+            ? $"[{item.Name}] · {actor}"
+            : $"[{item.Name}]";
+
+        if (!item.IsBusy)
         {
             SetAttribute(rowAttr);
-            AddStr(TextWrapping.Fit(ReadMarker + rest, width));
+            AddStr(TextWrapping.Fit(LeftPad + IdlePrefix + body, width));
             return;
         }
 
-        var markerAttr = new Attribute(NewMarkerForeground, rowAttr.Background, rowAttr.Style);
-        if (NewMarker.Length >= width)
+        var prefix = LeftPad + glyph + " ";
+        var glyphAttr = new Attribute(TuiStatusColors.AccentGreen, rowAttr.Background, rowAttr.Style);
+        if (prefix.Length >= width)
         {
-            SetAttribute(markerAttr);
-            AddStr(TextWrapping.Fit(NewMarker, width));
+            SetAttribute(glyphAttr);
+            AddStr(TextWrapping.Fit(prefix, width));
             return;
         }
 
-        SetAttribute(markerAttr);
-        AddStr(NewMarker);
         SetAttribute(rowAttr);
-        AddStr(TextWrapping.Fit(rest, width - NewMarker.Length));
+        AddStr(LeftPad);
+        SetAttribute(glyphAttr);
+        AddStr(glyph + " ");
+        SetAttribute(rowAttr);
+        AddStr(TextWrapping.Fit(body, width - prefix.Length));
+    }
+
+    private int IndexOfName(string name)
+    {
+        for (var i = 0; i < _items.Count; i++)
+        {
+            if (string.Equals(_items[i].Name, name, StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+
+        return -1;
     }
 
     private bool MoveSelection(int delta) =>
@@ -144,7 +221,7 @@ internal sealed class InboxListView : View
         if (next != _selected)
         {
             _selected = next;
-            SetNeedsDraw();
+            RequestDraw();
         }
 
         EnsureSelectionVisible();

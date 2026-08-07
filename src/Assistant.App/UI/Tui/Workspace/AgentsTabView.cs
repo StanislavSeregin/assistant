@@ -2,7 +2,6 @@ using Assistant.App.UI.Abstractions;
 using Assistant.App.UI.Tui.Shell;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
@@ -28,18 +27,17 @@ public sealed class AgentsTabView : View, IWorkspaceTab
         _ui = ui;
         _listScreen = new AgentsListScreen(
             workspace,
+            ui,
             onWrite: ShowWrite,
-            onDispose: ShowDisposeConfirm,
+            onDispose: DisposeChild,
             onSpawn: ShowSpawnFromTemplate);
         _host.Reset(_listScreen);
         _host.RequestPopToRoot = BackToList;
         Add(_host);
 
         workspace.ChildrenChanged += OnChildrenChanged;
+        workspace.AgentActivityChanged += OnAgentActivityChanged;
     }
-
-    /// <summary>Raised after a successful new-mail send.</summary>
-    public event Action? OutgoingMailSent;
 
     /// <summary>Active list or overlay screen inside this tab.</summary>
     public View? CurrentScreen => _host.Current;
@@ -60,15 +58,18 @@ public sealed class AgentsTabView : View, IWorkspaceTab
         if (disposing)
         {
             _workspace.ChildrenChanged -= OnChildrenChanged;
+            _workspace.AgentActivityChanged -= OnAgentActivityChanged;
+            _listScreen.DisposeSpin();
         }
 
         base.Dispose(disposing);
     }
 
-    private void OnChildrenChanged(object? sender, EventArgs e)
-    {
+    private void OnChildrenChanged(object? sender, EventArgs e) =>
         _ui.Post(() => _listScreen.Reload());
-    }
+
+    private void OnAgentActivityChanged(object? sender, EventArgs e) =>
+        _ui.Post(() => _listScreen.OnActivityChanged());
 
     private void BackToList()
     {
@@ -84,26 +85,15 @@ public sealed class AgentsTabView : View, IWorkspaceTab
             subjectEditable: true,
             isReply: false,
             onSend: (subject, body) => _workspace.WriteMail(child.Name, subject, body),
-            onDone: () =>
-            {
-                BackToList();
-                OutgoingMailSent?.Invoke();
-            },
+            onDone: BackToList,
             onCancel: BackToList);
         _host.Push(compose);
     }
 
-    private void ShowDisposeConfirm(ChildNodeInfo child)
+    private void DisposeChild(ChildNodeInfo child)
     {
-        var confirm = new ConfirmScreen(
-            $"Dispose '{child.Name}' and its subtree?",
-            onYes: () =>
-            {
-                _workspace.DisposeChild(child.Name);
-                BackToList();
-            },
-            onNo: BackToList);
-        _host.Push(confirm);
+        _workspace.DisposeChild(child.Name);
+        _listScreen.Reload();
     }
 
     private void ShowSpawnFromTemplate()
@@ -138,21 +128,27 @@ public sealed class AgentsTabView : View, IWorkspaceTab
 
 internal sealed class AgentsListScreen : View
 {
+    private static readonly TimeSpan SpinInterval = TimeSpan.FromMilliseconds(80);
+
     private readonly IUserWorkspace _workspace;
+    private readonly IUiScheduler _ui;
     private readonly Action<ChildNodeInfo> _onWrite;
     private readonly Action<ChildNodeInfo> _onDispose;
     private readonly Action _onSpawn;
-    private readonly ListView _list;
-    private readonly ObservableCollection<string> _lines = [];
+    private readonly AgentsListView _list;
     private IReadOnlyList<ChildNodeInfo> _items = [];
+    private IDisposable? _spinTimer;
+    private bool _spinning;
 
     public AgentsListScreen(
         IUserWorkspace workspace,
+        IUiScheduler ui,
         Action<ChildNodeInfo> onWrite,
         Action<ChildNodeInfo> onDispose,
         Action onSpawn)
     {
         _workspace = workspace;
+        _ui = ui;
         _onWrite = onWrite;
         _onDispose = onDispose;
         _onSpawn = onSpawn;
@@ -168,16 +164,14 @@ internal sealed class AgentsListScreen : View
             CanFocus = false
         };
 
-        _list = new ListView
+        _list = new AgentsListView
         {
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
-            Height = Dim.Fill(1),
-            CanFocus = true,
-            TabStop = TabBehavior.TabStop
+            Height = Dim.Fill(1)
         };
-        _list.SetSource(_lines);
+        _list.AcceptSelected += OpenSelected;
 
         Add(_list, hint);
         KeyDown += OnKeyDown;
@@ -185,18 +179,90 @@ internal sealed class AgentsListScreen : View
         Reload();
     }
 
+    public void DisposeSpin() => StopSpinTimer();
+
     public void Reload()
     {
         _items = _workspace.ListChildren();
-        _lines.Clear();
-        foreach (var c in _items)
+        RefreshRows();
+        OnActivityChanged();
+    }
+
+    public void OnActivityChanged()
+    {
+        var busy = _workspace.AnyAgentBusy;
+        if (busy)
         {
-            _lines.Add($"{c.Name}  —  {c.Description}");
+            EnsureSpinTimer();
+            RefreshRows();
+            return;
         }
 
-        if (_lines.Count > 0)
+        if (!_spinning && _spinTimer is null)
         {
-            _list.SelectedItem = 0;
+            return;
+        }
+
+        StopSpinTimer();
+        RefreshRows();
+    }
+
+    private void EnsureSpinTimer()
+    {
+        if (_spinTimer is not null)
+        {
+            return;
+        }
+
+        _spinning = true;
+        _spinTimer = _ui.AddRepeatingTimer(SpinInterval, OnSpinTick);
+    }
+
+    private void StopSpinTimer()
+    {
+        _spinTimer?.Dispose();
+        _spinTimer = null;
+        _spinning = false;
+        _list.ResetSpin();
+    }
+
+    private bool OnSpinTick()
+    {
+        if (!_workspace.AnyAgentBusy)
+        {
+            _spinTimer = null;
+            _spinning = false;
+            _list.ResetSpin();
+            RefreshRows();
+            return false;
+        }
+
+        _spinning = true;
+        _list.AdvanceSpin();
+        return true;
+    }
+
+    private void RefreshRows()
+    {
+        var rows = new AgentListRow[_items.Count];
+        for (var i = 0; i < _items.Count; i++)
+        {
+            var child = _items[i];
+            var activity = _workspace.GetAgentActivity(child.Name);
+            rows[i] = new AgentListRow(
+                child.Name,
+                activity.IsBusy,
+                activity.ActiveActor);
+        }
+
+        _list.SetItems(rows);
+    }
+
+    private void OpenSelected()
+    {
+        if (TryGetSelected(out var child))
+        {
+            _onWrite(child);
         }
     }
 
@@ -229,13 +295,20 @@ internal sealed class AgentsListScreen : View
     private bool TryGetSelected(out ChildNodeInfo child)
     {
         child = default!;
-        var index = _list.SelectedItem ?? -1;
-        if (index < 0 || index >= _items.Count)
+        if (_list.SelectedItem is not { } row)
         {
             return false;
         }
 
-        child = _items[index];
-        return true;
+        foreach (var item in _items)
+        {
+            if (string.Equals(item.Name, row.Name, StringComparison.Ordinal))
+            {
+                child = item;
+                return true;
+            }
+        }
+
+        return false;
     }
 }

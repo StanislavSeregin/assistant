@@ -64,16 +64,6 @@ public sealed class AssistantShell : Window
         var navigation = new WorkspaceNavigation(app, _tabs, agentsTab, inboxTab);
         _navigation = navigation;
 
-        void ShowInboxAfterSend()
-        {
-            inboxTab.ActivateList();
-            navigation.ActivateInbox();
-            ShowWorkspace();
-        }
-
-        inboxTab.OutgoingMailSent += ShowInboxAfterSend;
-        agentsTab.OutgoingMailSent += ShowInboxAfterSend;
-
         void Quit() => App?.RequestStop();
 
         // Window default Quit throws when not running as a modal Runnable.
@@ -83,6 +73,22 @@ public sealed class AssistantShell : Window
             return true;
         });
         KeyBindings.Remove(Key.Esc);
+
+        void LeaveLogOnEsc(object? _, Key key)
+        {
+            if (key != Key.Esc || !_logFrame.Visible)
+            {
+                return;
+            }
+
+            ShowWorkspace();
+            key.Handled = true;
+        }
+
+        // Esc is Cancel/back on Workspace screens; from Log it only returns to Workspace.
+        KeyDown += LeaveLogOnEsc;
+        _logFrame.KeyDown += LeaveLogOnEsc;
+        logPane.KeyDown += LeaveLogOnEsc;
 
         var statusBar = new StatusBar();
         var quit = new Shortcut
@@ -94,6 +100,7 @@ public sealed class AssistantShell : Window
         quit.Activated += (_, _) => Quit();
 
         // Title is the destination mode; starts on Workspace so F5 opens Log.
+        // Esc also leaves Log → Workspace (not bound here — would steal Cancel on screens).
         _toggleMode = new Shortcut
         {
             Title = "Log",

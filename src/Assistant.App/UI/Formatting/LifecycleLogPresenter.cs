@@ -59,7 +59,8 @@ public sealed class LifecycleLogPresenter
                 WriteNotice(
                     $"{e.Node} · {FormatToolHeader(e)}",
                     FormatToolBody(e),
-                    LogTone.Grey);
+                    LogTone.Grey,
+                    nameAccents: Accents(e.Node));
                 break;
             case ContextCommitted e:
                 PauseThinking(e.Node);
@@ -67,39 +68,49 @@ public sealed class LifecycleLogPresenter
                     $"{e.Node} · CommitContext",
                     e.Handoff,
                     LogTone.Magenta,
-                    writeFooter: false);
+                    writeFooter: false,
+                    nameAccents: Accents(e.Node));
                 break;
             case TurnWake e:
-                WriteNotice($"{e.Node} · wake", e.Message, LogTone.Grey);
+                WriteNotice($"{e.Node} · wake", e.Message, LogTone.Grey, nameAccents: Accents(e.Node));
                 break;
             case SupportAdvice e:
                 PauseThinking(e.Node);
-                WriteNotice($"{e.Node} · support", e.Message, LogTone.Yellow);
+                WriteNotice($"{e.Node} · support", e.Message, LogTone.Yellow, nameAccents: Accents(e.Node));
                 break;
             case SystemNotificationInjected e:
                 PauseThinking(e.Node);
-                WriteNotice($"{e.Node} · notify", e.Message, LogTone.Yellow);
+                WriteNotice($"{e.Node} · notify", e.Message, LogTone.Yellow, nameAccents: Accents(e.Node));
                 break;
             case ErrorEvent e:
                 PauseThinking(e.Node);
-                WriteNotice($"{e.Node} · error", e.Message, LogTone.Red);
+                WriteNotice($"{e.Node} · error", e.Message, LogTone.Red, nameAccents: Accents(e.Node));
                 break;
             case NodeSpawned e:
                 if (string.IsNullOrEmpty(e.Parent))
                 {
-                    WriteNotice($"{e.Node} · online", e.Description, LogTone.Blue);
+                    WriteNotice(
+                        $"{e.Node} · online",
+                        e.Description,
+                        LogTone.Blue,
+                        nameAccents: Accents(e.Node));
                 }
                 else
                 {
                     WriteNotice(
                         $"{e.Parent} -> {e.Node} · spawn",
                         FormatSpawn(e),
-                        LogTone.Blue);
+                        LogTone.Blue,
+                        nameAccents: Accents(e.Parent, e.Node));
                 }
 
                 break;
             case NodeDisposed e:
-                WriteNotice($"{e.Parent} -> {e.Node} · dispose", null, LogTone.Blue);
+                WriteNotice(
+                    $"{e.Parent} -> {e.Node} · dispose",
+                    null,
+                    LogTone.Blue,
+                    nameAccents: Accents(e.Parent, e.Node));
                 break;
             case UsageEvent e:
                 PauseThinking(e.Node);
@@ -130,7 +141,8 @@ public sealed class LifecycleLogPresenter
             _log.Header(
                 $"{e.From} -> You · {(e.IsReply ? "reply" : "mail")}",
                 LogTone.BoldGreen,
-                DateTime.Now);
+                DateTime.Now,
+                Accents(e.From));
             _log.BodyLine($"id: {e.MailId} · {e.Subject}", LogTone.Grey);
             _log.Footer();
             return;
@@ -140,7 +152,8 @@ public sealed class LifecycleLogPresenter
         _log.Header(
             $"{e.From} -> {e.To} · {(e.IsReply ? "reply" : "mail")}",
             LogTone.Cyan,
-            DateTime.Now);
+            DateTime.Now,
+            Accents(e.From, e.To));
         _log.BodyLine($"id: {e.MailId}", LogTone.Grey);
         _log.BodyLine(e.Subject, LogTone.Grey);
         foreach (var line in e.Body.ReplaceLineEndings("\n").Split('\n'))
@@ -154,7 +167,11 @@ public sealed class LifecycleLogPresenter
     private void WriteMailRead(MailRead e)
     {
         _log.BlankLine();
-        _log.Header($"{e.Node} · ReadMail from {e.From}", LogTone.Grey, DateTime.Now);
+        _log.Header(
+            $"{e.Node} · ReadMail from {e.From}",
+            LogTone.Grey,
+            DateTime.Now,
+            Accents(e.Node, e.From));
         _log.BodyLine($"id: {e.MailId}", LogTone.Grey);
         _log.BodyLine($"time: {MailTimestamp.FormatUtc(e.Timestamp)}", LogTone.Grey);
         _log.BodyLine(e.Subject, LogTone.Grey);
@@ -390,7 +407,7 @@ public sealed class LifecycleLogPresenter
         var displayedAt = DateTime.Now;
         _streams[streamId] = new ActiveStream(agent, displayedAt);
         _log.BlankLine();
-        _log.Header($"{agent ?? "?"} · thinking", LogTone.Grey, displayedAt);
+        _log.Header($"{agent ?? "?"} · thinking", LogTone.Grey, displayedAt, Accents(agent));
     }
 
     private void CompleteStream(Guid streamId, long? inputTokens)
@@ -439,10 +456,11 @@ public sealed class LifecycleLogPresenter
         string header,
         string? body,
         LogTone bodyTone,
-        bool writeFooter = true)
+        bool writeFooter = true,
+        string[]? nameAccents = null)
     {
         _log.BlankLine();
-        _log.Header(header, bodyTone, DateTime.Now);
+        _log.Header(header, bodyTone, DateTime.Now, nameAccents);
 
         if (!string.IsNullOrEmpty(body))
         {
@@ -466,7 +484,28 @@ public sealed class LifecycleLogPresenter
             return;
         }
 
-        _log.Footer($"{message.Node} · {usage}");
+        _log.Footer($"{message.Node} · {usage}", nameAccents: Accents(message.Node));
+    }
+
+    /// <summary>Distinct non-empty agent names to accent in a header/footer.</summary>
+    private static string[]? Accents(params string?[] names)
+    {
+        List<string>? list = null;
+        foreach (var name in names)
+        {
+            if (string.IsNullOrEmpty(name) || name is "?" or "You" or "User")
+            {
+                continue;
+            }
+
+            list ??= [];
+            if (!list.Contains(name, StringComparer.Ordinal))
+            {
+                list.Add(name);
+            }
+        }
+
+        return list is { Count: > 0 } ? list.ToArray() : null;
     }
 
     private sealed class ActiveStream(string? agent, DateTime startedAt)

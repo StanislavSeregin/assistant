@@ -80,21 +80,100 @@ public sealed class LogPaneView : View
             }
 
             var line = lines[index];
-            SetAttribute(LogPalette.Resolve(line.Tone));
-            var text = line.Text;
-            if (text.Length > width)
-            {
-                text = text[..width];
-            }
-            else if (text.Length < width)
-            {
-                text += new string(' ', width - text.Length);
-            }
-
-            AddStr(text);
+            DrawLine(line, width);
         }
 
         return true;
+    }
+
+    private void DrawLine(LogDisplayLine line, int width)
+    {
+        var text = line.Text;
+        if (text.Length > width)
+        {
+            text = text[..width];
+        }
+
+        var pad = width - text.Length;
+        var baseAttr = LogPalette.Resolve(line.Tone);
+        var accents = line.NameAccents;
+        if (accents is not { Length: > 0 } || text.Length == 0)
+        {
+            SetAttribute(baseAttr);
+            AddStr(pad > 0 ? text + new string(' ', pad) : text);
+            return;
+        }
+
+        var cursor = 0;
+        while (cursor < text.Length)
+        {
+            if (!TryFindNextAccent(text, cursor, accents, out var start, out var length, out var name))
+            {
+                SetAttribute(baseAttr);
+                AddStr(text[cursor..]);
+                break;
+            }
+
+            if (start > cursor)
+            {
+                SetAttribute(baseAttr);
+                AddStr(text[cursor..start]);
+            }
+
+            SetAttribute(LogPalette.ResolveName(name));
+            AddStr(text.Substring(start, length));
+            cursor = start + length;
+        }
+
+        if (pad > 0)
+        {
+            SetAttribute(baseAttr);
+            AddStr(new string(' ', pad));
+        }
+    }
+
+    /// <summary>
+    /// Next accent occurrence at or after <paramref name="from"/>. Longer names win on
+    /// overlap so e.g. "Archivist" is preferred over "Arch".
+    /// </summary>
+    private static bool TryFindNextAccent(
+        string text,
+        int from,
+        string[] accents,
+        out int start,
+        out int length,
+        out string name)
+    {
+        start = text.Length;
+        length = 0;
+        name = string.Empty;
+        var found = false;
+
+        foreach (var accent in accents)
+        {
+            if (string.IsNullOrEmpty(accent))
+            {
+                continue;
+            }
+
+            var index = text.IndexOf(accent, from, StringComparison.Ordinal);
+            if (index < 0)
+            {
+                continue;
+            }
+
+            if (!found
+                || index < start
+                || index == start && accent.Length > length)
+            {
+                start = index;
+                length = accent.Length;
+                name = accent;
+                found = true;
+            }
+        }
+
+        return found;
     }
 
     protected override void Dispose(bool disposing)

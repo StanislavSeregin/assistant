@@ -1,4 +1,5 @@
 using Assistant.App.Mail;
+using Assistant.App.Runtime;
 using System;
 using System.Collections.Generic;
 
@@ -14,6 +15,12 @@ public interface IUserWorkspace
     event EventHandler? InboxChanged;
 
     event EventHandler? ChildrenChanged;
+
+    /// <summary>
+    /// Fired when model activity may have changed (turn boundaries, support enter/exit).
+    /// Busy detail: <see cref="GetAgentActivity"/>.
+    /// </summary>
+    event EventHandler? AgentActivityChanged;
 
     string DefaultMailSubject { get; }
 
@@ -34,6 +41,12 @@ public interface IUserWorkspace
     (bool Ok, string Message) WriteMail(string toName, string subject, string body);
 
     IReadOnlyList<ChildNodeInfo> ListChildren();
+
+    /// <summary>Any graph turn or sideband model work is in flight.</summary>
+    bool AnyAgentBusy { get; }
+
+    /// <summary>Busy snapshot for a User-direct child row (spinner + optional actor).</summary>
+    AgentRowActivity GetAgentActivity(string name);
 
     (bool Ok, string Message) SpawnChild(AgentTemplate template);
 

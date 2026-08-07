@@ -1,5 +1,6 @@
 using System;
 using Terminal.Gui.Input;
+using Terminal.Gui.Text;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 
@@ -24,6 +25,39 @@ internal sealed class WorkspaceTabs : Tabs
 
     /// <summary>User clicked a page header.</summary>
     public event Action<View>? HeaderActivated;
+
+    /// <summary>
+    /// Sets the tab-strip label for <paramref name="page"/>.
+    /// Terminal.Gui Tabs render <see cref="BorderView.TitleView"/>, which does not
+    /// reliably follow <see cref="View.Title"/> — keep both in sync and resize
+    /// <see cref="BorderView.TabLength"/> so longer titles (e.g. inbox badges) fit.
+    /// </summary>
+    public static void SetPageTitle(View page, string title)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+        ArgumentNullException.ThrowIfNull(title);
+
+        page.Title = title;
+
+        if (page.Border?.View is BorderView border)
+        {
+            // Title columns + the two border cells of the tab cap (toolkit convention).
+            border.TabLength = title.GetColumns() + 2;
+
+            if (border.TitleView is { } titleView)
+            {
+                titleView.Text = title;
+                titleView.SetNeedsDraw();
+            }
+        }
+
+        page.SetNeedsLayout();
+        if (page.SuperView is { } host)
+        {
+            host.SetNeedsLayout();
+            host.SetNeedsDraw();
+        }
+    }
 
     /// <summary>
     /// Selects <paramref name="page"/> and runs <paramref name="focusContent"/> after
@@ -54,6 +88,9 @@ internal sealed class WorkspaceTabs : Tabs
     {
         base.OnSubViewAdded(view);
         view.TabStop = TabBehavior.TabGroup;
+
+        // Ensure the strip label matches Title at attach time (same contract as SetPageTitle).
+        SetPageTitle(view, view.Title ?? string.Empty);
 
         if (view.Border?.View is not BorderView { TitleView: { } title } border)
         {

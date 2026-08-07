@@ -8,10 +8,15 @@ namespace Assistant.App.UI.Tui.Workspace;
 
 /// <summary>
 /// Read-only mail detail, laid out like <see cref="ComposeMailScreen"/> so body/subject
-/// can be selected and copied without allowing edits.
+/// can be selected and copied without allowing edits. Initial focus is the body so
+/// cursor keys scroll the message immediately.
 /// </summary>
 internal sealed class InboxDetailScreen : View
 {
+#pragma warning disable CS0618
+    private readonly TextView _body;
+#pragma warning restore CS0618
+
     public InboxDetailScreen(
         MailMessage message,
         Action onBack,
@@ -23,7 +28,7 @@ internal sealed class InboxDetailScreen : View
 
         var header = new Label
         {
-            Text = $"From: {message.From}  Id: {message.Id}",
+            Text = $"From: {message.From}",
             X = 0,
             Y = 0,
             Width = Dim.Fill(),
@@ -50,7 +55,7 @@ internal sealed class InboxDetailScreen : View
         };
 
 #pragma warning disable CS0618
-        var body = new TextView
+        _body = new TextView
         {
             Text = message.Body,
             X = 0,
@@ -75,7 +80,7 @@ internal sealed class InboxDetailScreen : View
             CanFocus = false
         };
 
-        Add(header, subjectLabel, subject, body, hint);
+        Add(header, subjectLabel, subject, _body, hint);
 
         void HandleHotkeys(object? _, Key key)
         {
@@ -99,6 +104,9 @@ internal sealed class InboxDetailScreen : View
 
         KeyDown += HandleHotkeys;
         subject.KeyDown += HandleHotkeys;
-        body.KeyDown += HandleHotkeys;
+        _body.KeyDown += HandleHotkeys;
     }
+
+    /// <summary>Focus the message body so navigation keys scroll it right away.</summary>
+    public void FocusForReading() => _body.SetFocus();
 }

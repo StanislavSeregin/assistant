@@ -33,6 +33,7 @@ public static class ServiceCollectionExtensions
             .AddSingleton<NodeRegistry>()
             .AddSingleton<MailService>()
             .AddSingleton<ModelSlotLimiter>()
+            .AddSingleton<ModelActivityTracker>()
             .AddSingleton<AgentBootstrap>()
             .AddSingleton<AgentMailTools>()
             .AddSingleton<StatelessAgent>()

@@ -3,6 +3,7 @@ using Assistant.App.UI.Abstractions;
 using Assistant.App.UI.Tui.Shell;
 using System;
 using System.Linq;
+using Terminal.Gui.Input;
 using Terminal.Gui.ViewBase;
 using Terminal.Gui.Views;
 
@@ -26,15 +27,14 @@ public sealed class InboxTabView : View, IWorkspaceTab
 
         _workspace = workspace;
         _ui = ui;
-        _listScreen = new InboxListScreen(workspace, OpenMail);
+        _listScreen = new InboxListScreen(workspace, OpenMail, ReplyMail, DeleteMail);
         _host.Reset(_listScreen);
         _host.RequestPopToRoot = BackToList;
         Add(_host);
 
         workspace.InboxChanged += OnInboxChanged;
+        RefreshTitle();
     }
-
-    public event Action? OutgoingMailSent;
 
     /// <summary>Active list or overlay screen inside this tab.</summary>
     public View? CurrentScreen => _host.Current;
@@ -47,13 +47,8 @@ public sealed class InboxTabView : View, IWorkspaceTab
             _listScreen.Reload();
         }
 
+        RefreshTitle();
         _host.FocusCurrent();
-    }
-
-    public void ActivateList()
-    {
-        BackToList();
-        FocusContent();
     }
 
     protected override void Dispose(bool disposing)
@@ -75,11 +70,20 @@ public sealed class InboxTabView : View, IWorkspaceTab
             if (_openMailId is not null && _workspace.FindMail(_openMailId) is null)
             {
                 BackToList();
+                RefreshTitle();
                 return;
             }
 
             _listScreen.Reload();
+            RefreshTitle();
         });
+    }
+
+    private void RefreshTitle()
+    {
+        var newCount = _workspace.ListInbox().Count(item => item.Status == MailStatus.New);
+        var title = newCount > 0 ? $"Inbox ({newCount})" : "Inbox";
+        WorkspaceTabs.SetPageTitle(this, title);
     }
 
     private void BackToList()
@@ -87,6 +91,7 @@ public sealed class InboxTabView : View, IWorkspaceTab
         _openMailId = null;
         _host.TryPopToRoot();
         _listScreen.Reload();
+        RefreshTitle();
     }
 
     private void OpenMail(string mailId)
@@ -100,13 +105,30 @@ public sealed class InboxTabView : View, IWorkspaceTab
         PushDetail(message);
     }
 
+    private void ReplyMail(string mailId)
+    {
+        var message = _workspace.FindMail(mailId);
+        if (message is null)
+        {
+            return;
+        }
+
+        ShowReply(message, returnToDetail: false);
+    }
+
+    private void DeleteMail(string mailId)
+    {
+        _workspace.DeleteMail(mailId);
+        _listScreen.Reload();
+    }
+
     private void PushDetail(MailMessage message)
     {
         _openMailId = message.Id;
         _host.Push(new InboxDetailScreen(
             message,
             onBack: BackToList,
-            onReply: () => ShowReply(message),
+            onReply: () => ShowReply(message, returnToDetail: true),
             onDelete: () =>
             {
                 _workspace.DeleteMail(message.Id);
@@ -114,7 +136,7 @@ public sealed class InboxTabView : View, IWorkspaceTab
             }));
     }
 
-    private void ShowReply(MailMessage original)
+    private void ShowReply(MailMessage original, bool returnToDetail)
     {
         _openMailId = original.Id;
         _host.Push(new ComposeMailScreen(
@@ -125,13 +147,15 @@ public sealed class InboxTabView : View, IWorkspaceTab
             subjectEditable: false,
             isReply: true,
             onSend: (_, body) => _workspace.ReplyMail(original.Id, body),
-            onDone: () =>
-            {
-                BackToList();
-                OutgoingMailSent?.Invoke();
-            },
+            onDone: BackToList,
             onCancel: () =>
             {
+                if (!returnToDetail)
+                {
+                    BackToList();
+                    return;
+                }
+
                 var message = _workspace.FindMail(original.Id) ?? original;
                 PushDetail(message);
             }));
@@ -142,18 +166,26 @@ internal sealed class InboxListScreen : View
 {
     private readonly IUserWorkspace _workspace;
     private readonly Action<string> _openMail;
+    private readonly Action<string> _replyMail;
+    private readonly Action<string> _deleteMail;
     private readonly InboxListView _list;
 
-    public InboxListScreen(IUserWorkspace workspace, Action<string> openMail)
+    public InboxListScreen(
+        IUserWorkspace workspace,
+        Action<string> openMail,
+        Action<string> replyMail,
+        Action<string> deleteMail)
     {
         _workspace = workspace;
         _openMail = openMail;
+        _replyMail = replyMail;
+        _deleteMail = deleteMail;
         CanFocus = true;
         TabStop = TabBehavior.TabGroup;
 
         var hint = new Label
         {
-            Text = "Enter open",
+            Text = "Enter open · Ctrl+R reply · Ctrl+D delete",
             X = 0,
             Y = Pos.AnchorEnd(),
             Width = Dim.Fill(),
@@ -171,6 +203,8 @@ internal sealed class InboxListScreen : View
         _list.AcceptSelected += OpenSelected;
 
         Add(_list, hint);
+        KeyDown += OnKeyDown;
+        _list.KeyDown += OnKeyDown;
         Reload();
     }
 
@@ -182,6 +216,27 @@ internal sealed class InboxListScreen : View
         if (_list.SelectedItem is { } item)
         {
             _openMail(item.Id);
+        }
+    }
+
+    private void OnKeyDown(object? sender, Key key)
+    {
+        if (_list.SelectedItem is not { } item)
+        {
+            return;
+        }
+
+        if (key == Key.R.WithCtrl)
+        {
+            _replyMail(item.Id);
+            key.Handled = true;
+            return;
+        }
+
+        if (key == Key.D.WithCtrl)
+        {
+            _deleteMail(item.Id);
+            key.Handled = true;
         }
     }
 }

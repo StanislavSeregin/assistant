@@ -7,7 +7,7 @@ namespace Assistant.App.UI.Tui.Shell;
 /// <summary>
 /// Application-scoped keys for the Assistant TUI.
 /// <list type="bullet">
-/// <item>Quit: Ctrl+Q (Esc remains cancel/back in screens).</item>
+/// <item>Quit: Ctrl+Q (Esc: Cancel/back on Workspace screens; from Log → Workspace).</item>
 /// <item>Focus traversal: <see cref="WorkspaceNavigation"/> owns Tab / Shift+Tab.</item>
 /// <item>Cursor keys: view-scoped only (scroll, list, caret).</item>
 /// </list>

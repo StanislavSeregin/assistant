@@ -26,4 +26,8 @@ public static class LogPalette
         LogTone.Dim => new Attribute(Color.DarkGray, Bg, TextStyle.Faint),
         _ => new Attribute(Color.Gray, Bg)
     };
+
+    /// <summary>Foreground for an agent/node name, stable for a given spelling.</summary>
+    public static Attribute ResolveName(string name) =>
+        NameColorPalette.Resolve(name, Bg);
 }

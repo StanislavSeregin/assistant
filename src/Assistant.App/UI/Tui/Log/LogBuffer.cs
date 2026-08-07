@@ -5,7 +5,7 @@ using System.Collections.Generic;
 
 namespace Assistant.App.UI.Tui.Log;
 
-public readonly record struct LogDisplayLine(string Text, LogTone Tone);
+public readonly record struct LogDisplayLine(string Text, LogTone Tone, string[]? NameAccents = null);
 
 /// <summary>
 /// Ring buffer of display lines with word-wrap. Toolkit-free so tests / alternate UIs can reuse it.
@@ -76,12 +76,12 @@ public sealed class LogBuffer
         }
     }
 
-    public void Header(string text, LogTone tone, DateTime timestamp)
+    public void Header(string text, LogTone tone, DateTime timestamp, string[]? nameAccents = null)
     {
         lock (_gate)
         {
             CloseInlineUnlocked();
-            AddWrappedUnlocked($"{text} [{timestamp:HH:mm:ss}]", tone);
+            AddWrappedUnlocked($"{text} [{timestamp:HH:mm:ss}]", tone, nameAccents);
             // Separator under header
             AddLineUnlocked(new string('─', Math.Min(_wrapWidth, 40)), LogTone.Dim);
         }
@@ -121,7 +121,7 @@ public sealed class LogBuffer
         }
     }
 
-    public void Footer(string? text, LogTone tone)
+    public void Footer(string? text, LogTone tone, string[]? nameAccents = null)
     {
         lock (_gate)
         {
@@ -132,7 +132,7 @@ public sealed class LogBuffer
             }
             else
             {
-                AddWrappedUnlocked(text, tone);
+                AddWrappedUnlocked(text, tone, nameAccents);
                 AddLineUnlocked(new string('─', Math.Min(_wrapWidth, 40)), LogTone.Dim);
             }
         }
@@ -159,21 +159,21 @@ public sealed class LogBuffer
 
         var combined = last.Text + chunk;
         _lines.RemoveAt(_lines.Count - 1);
-        AddWrappedUnlocked(combined, tone);
+        AddWrappedUnlocked(combined, tone, last.NameAccents);
         _inlineOpen = true;
     }
 
-    private void AddWrappedUnlocked(string text, LogTone tone)
+    private void AddWrappedUnlocked(string text, LogTone tone, string[]? nameAccents = null)
     {
         foreach (var segment in TextWrapping.Wrap(text, _wrapWidth))
         {
-            AddLineUnlocked(segment, tone);
+            AddLineUnlocked(segment, tone, nameAccents);
         }
     }
 
-    private void AddLineUnlocked(string text, LogTone tone)
+    private void AddLineUnlocked(string text, LogTone tone, string[]? nameAccents = null)
     {
-        _lines.Add(new LogDisplayLine(text, tone));
+        _lines.Add(new LogDisplayLine(text, tone, nameAccents));
         while (_lines.Count > _capacity)
         {
             _lines.RemoveAt(0);
@@ -201,7 +201,7 @@ public sealed class LogBuffer
                 continue;
             }
 
-            AddWrappedUnlocked(line.Text, line.Tone);
+            AddWrappedUnlocked(line.Text, line.Tone, line.NameAccents);
         }
     }
 }

@@ -128,6 +128,12 @@ public sealed class ScreenHostView : View
         }
 
         top.SetFocus();
+        if (top is InboxDetailScreen detail)
+        {
+            detail.FocusForReading();
+            return;
+        }
+
         if (!top.FocusDeepest(NavigationDirection.Forward, TabBehavior.TabStop))
         {
             top.SetFocus();

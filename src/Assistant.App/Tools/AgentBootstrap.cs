@@ -255,7 +255,13 @@ public sealed class AgentBootstrap(
             - Clarifying question → ReplyMail the answer; keep them; then stop.
 
             Channel:
-            - Only WriteMail / ReplyMail are delivered. Free text is private.
+            - Only WriteMail / ReplyMail are delivered. Free text / thinking is private —
+              nobody else sees it.
+            - When you have text meant for someone (parent, Director, or a child), send it
+              with ReplyMail / WriteMail in that moment. Do not leave the outbound in
+              thinking and assume it was delivered.
+            - Waiting is fine: hire, brief, CommitContext, and answer the parent later
+              when results are in. Defer the reply — never substitute thinking for mail.
             - ReplyMail answers inbox mail; WriteMail starts a new thread.
             - ReplyMail body = your new text only; the prior thread is appended
               automatically from the mail you are answering.

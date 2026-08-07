@@ -1,5 +1,6 @@
 using Assistant.App.Mail;
 using Assistant.App.Registry;
+using Assistant.App.Runtime;
 using Assistant.App.Tools;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -20,7 +21,7 @@ public enum TurnSupportMode
 /// <summary>
 /// Stateless advisor injected as a [SYSTEM] turn notice when a phase stalls.
 /// </summary>
-public sealed class TurnSupportAdvisor(StatelessAgent stateless)
+public sealed class TurnSupportAdvisor(StatelessAgent stateless, ModelActivityTracker activity)
 {
     private const int MaxAdviceOutputTokens = 160;
     private const int MaxAdviceChars = 550;
@@ -40,10 +41,13 @@ public sealed class TurnSupportAdvisor(StatelessAgent stateless)
         - Work already done, leftover inbox / rewake loop, agent frustrated that it "already
           finished": calm it briefly; recommend DeleteMail on the leftover id(s) and/or
           DisposeSubagent for finished children. Do not demand redoing the task.
-        - Answer exists only as free text / thinking: point at the waiting mail (id/from/subject)
-          and say ReplyMail — free text reaches no one.
+        - Answer / outbound already drafted only as free text / thinking: point at the
+          recipient mail (id/from/subject) and say ReplyMail / WriteMail that text now —
+          thinking reaches no one. Do not tell them they must answer the parent this wake
+          if they are still waiting on children; only ship text that is already meant to go.
         - ReadMail without clearing: ReplyMail or DeleteMail that id.
-        - Wrong recipient / parent mail still open: say what to clear or whom to answer.
+        - Wrong recipient / parent mail still open: say what to clear or whom to answer
+          (defer while work runs is valid; a finished reply sitting in thinking is not).
         - Earlier [SYSTEM] notice failed: try a different concrete exit.
 
         When you name mail or children, be specific (ids, from, subject, names from the
@@ -62,13 +66,13 @@ public sealed class TurnSupportAdvisor(StatelessAgent stateless)
         transcript and infer what blocked them.
 
         Choose what fits:
-        - Note exists only as free text / thinking: suggest CommitContext with that content
-          (mention the 4000-char limit only if relevant).
-        - CommitContext returned a soft error (empty / too long / mail not settled): explain the
-          fix simply and invite a retry.
+        - Note exists only as free text / thinking: suggest CommitContext with that content.
+        - CommitContext returned a soft error (empty / mail not settled): explain the fix
+          simply and invite a retry.
         - Unsure what to write: point at sections Intent; Progress (resolved vs remaining);
-          Decisions & discoveries; Active thread; Carry forward — fill what applies; exact
-          facts; inbox returns on wake; note is reference for future self, not new orders.
+          Decisions & dead ends; Active thread; Carry forward — fill what applies; briefing
+          not transcript; exact facts; prefer clear and short; inbox returns on wake; note
+          is reference for future self, not new orders.
         - Earlier notice failed: try a different concrete nudge.
 
         A few compact sentences, ~550 characters max.
@@ -83,12 +87,15 @@ public sealed class TurnSupportAdvisor(StatelessAgent stateless)
     {
         var package = BuildPackage(mode, agent, historyStartIndex, attempt);
         var instructions = mode == TurnSupportMode.Mail ? MailInstructions : CompactInstructions;
-        var advice = await stateless.RunAsync(
-            instructions,
-            package,
-            cancellationToken,
-            MaxAdviceOutputTokens);
-        return CompactAdvice(advice);
+        using (activity.Enter(agent.Name, ModelActivityActors.Support))
+        {
+            var advice = await stateless.RunAsync(
+                instructions,
+                package,
+                cancellationToken,
+                MaxAdviceOutputTokens);
+            return CompactAdvice(advice);
+        }
     }
 
     private static string CompactAdvice(string advice)
@@ -155,7 +162,6 @@ public sealed class TurnSupportAdvisor(StatelessAgent stateless)
         }
         else
         {
-            sb.AppendLine($"max_handoff_chars={AgentMailTools.MaxHandoffCharacters}");
             if (!string.IsNullOrWhiteSpace(agent.Llm?.ContinuityHandoff))
             {
                 sb.AppendLine(

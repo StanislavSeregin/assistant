@@ -36,7 +36,8 @@ internal static class TurnPromptBuilder
 
         sb.AppendLine();
         sb.AppendLine(
-            "Mail waiting for you (ReplyMail / WriteMail are how others see your answer):");
+            "Mail waiting for you (ReplyMail / WriteMail are how others see your answer; " +
+            "thinking is private):");
         foreach (var item in open)
         {
             sb.Append("- id=")
@@ -55,6 +56,8 @@ internal static class TurnPromptBuilder
         sb.Append(
             "Wake steps: load your role skill if named (or same name as you); handle mail; " +
             "CommitContext with a continuity note when mail work is settled. " +
+            "Outbound text for anyone → ReplyMail / WriteMail when you have it " +
+            "(deferring a parent reply while work runs is fine; drafts in thinking are not delivery). " +
             "History clears after CommitContext — the note is reference only next wake.");
 
         var listedIds = open.Select(item => item.Id).ToArray();

@@ -21,8 +21,6 @@ public sealed class AgentMailTools(
     ILifecycleSink lifecycle,
     SessionCheckpoint checkpoint)
 {
-    public const int MaxHandoffCharacters = 4000;
-
     public static readonly HashSet<string> ApplicationToolNames =
     [
         nameof(GetRecipients),
@@ -252,16 +250,10 @@ public sealed class AgentMailTools(
 
         if (string.IsNullOrWhiteSpace(handoff))
         {
-            return "CommitContext needs a short non-empty note for your next wake.";
+            return "CommitContext needs a non-empty continuity note for your next wake.";
         }
 
         var text = handoff.Trim();
-        if (text.Length > MaxHandoffCharacters)
-        {
-            return $"That note is {text.Length} characters (max {MaxHandoffCharacters}). " +
-                   "Please shorten it and call CommitContext again — nothing was cleared yet.";
-        }
-
         if (agent.Llm?.Session is null)
         {
             return "CommitContext could not run: session is not bound.";
