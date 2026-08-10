@@ -1,4 +1,5 @@
 using Microsoft.Agents.AI;
+using Assistant.App.Checklist;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -47,12 +48,17 @@ public sealed class LlmNodeRuntime
 
     public string? ContinuityHandoff { get; set; }
 
+    /// <summary>Engine-owned open work plan; survives CommitContext history clear.</summary>
+    public AgentChecklist Checklist { get; } = new();
+
     /// <summary>
     /// After process restore: next wake should resume mid-turn without injecting a new wake message.
     /// </summary>
     public bool NeedsResumeTurn { get; set; }
 
     public bool PersistedDidHandleMail { get; set; }
+
+    public bool PersistedDidMutateChecklist { get; set; }
 
     public bool PersistedDidCommitContext { get; set; }
 

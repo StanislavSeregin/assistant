@@ -94,7 +94,8 @@ public sealed class LlmNodeScheduler(
                 finally
                 {
                     llm.EndRun();
-                    if (!node.IsDisposed && node.Inbox.HasMail())
+                    if (!node.IsDisposed
+                        && (node.Inbox.HasMail() || TurnContinuation.HasOpenChecklist(node)))
                     {
                         llm.RequestWake();
                     }

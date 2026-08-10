@@ -39,4 +39,5 @@ public interface IAgentStateStore
 public readonly record struct TurnActivitySnapshot(
     bool DidHandleMail,
     bool DidCommitContext,
-    bool TurnInProgress);
+    bool TurnInProgress,
+    bool DidMutateChecklist = false);

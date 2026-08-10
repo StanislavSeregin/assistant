@@ -1,3 +1,4 @@
+using Assistant.App.Checklist;
 using Assistant.App.Lifecycle;
 using Assistant.App.Persistence;
 using System;
@@ -118,7 +119,9 @@ public sealed class NodeRegistry(ILifecycleSink lifecycle, IAgentStateStore stor
         {
             handle.Llm.ContinuityHandoff = doc.ContinuityHandoff;
             handle.Llm.PersistedDidHandleMail = doc.DidHandleMail;
+            handle.Llm.PersistedDidMutateChecklist = doc.DidMutateChecklist;
             handle.Llm.PersistedDidCommitContext = doc.DidCommitContext;
+            ChecklistPersistence.ApplyPersisted(handle.Llm.Checklist, doc.Checklist);
         }
 
         foreach (var (childName, childId) in doc.ChildrenByName)

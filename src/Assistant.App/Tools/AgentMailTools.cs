@@ -1,3 +1,4 @@
+using Assistant.App.Checklist;
 using Assistant.App.Lifecycle;
 using Assistant.App.Mail;
 using Assistant.App.Persistence;
@@ -31,6 +32,10 @@ public sealed class AgentMailTools(
         nameof(DeleteMail),
         nameof(SpawnSubagent),
         nameof(DisposeSubagent),
+        nameof(ChecklistSet),
+        nameof(ChecklistAdd),
+        nameof(ChecklistComplete),
+        nameof(ChecklistRemove),
         nameof(CommitContext)
     ];
 
@@ -53,12 +58,13 @@ public sealed class AgentMailTools(
             AIFunctionFactory.Create(
                 (string to, string subject, string body) => WriteMail(agent, activity, to, subject, body),
                 nameof(WriteMail),
-                "Send a new mail to an addressable recipient."),
+                "Send a new mail to an addressable recipient. " +
+                "Use for briefs, child traffic, or optional mid-work progress to the parent."),
             AIFunctionFactory.Create(
                 (string mailId, string body) => ReplyMail(agent, activity, mailId, body),
                 nameof(ReplyMail),
-                "Reply to an inbox mail by id with your new answer only — " +
-                "prior messages are appended automatically from the mail you are answering."),
+                "Reply to an inbox mail by id with your new text only — prior thread is appended. " +
+                "On parent ask: final ReplyMail closes that ask when the work is finished."),
             AIFunctionFactory.Create(
                 (string mailId) => DeleteMail(agent, activity, mailId),
                 nameof(DeleteMail),
@@ -89,6 +95,38 @@ public sealed class AgentMailTools(
                 "End a direct subagent and its subtree. Prefer this over mailing them a thanks/ACK. " +
                 "They are gone: you cannot mail them, they cannot mail you, and their mail " +
                 "is removed from your inbox."),
+            AIFunctionFactory.Create(
+                [Description("Replace the open checklist with these actionable steps (in order).")]
+                (
+                    [Description("Actionable remaining steps, in order")]
+                    string[] items) =>
+                    ChecklistSet(agent, activity, items),
+                nameof(ChecklistSet)),
+            AIFunctionFactory.Create(
+                [Description("Append actionable steps to the open checklist.")]
+                (
+                    [Description("New actionable steps to append")]
+                    string[] items) =>
+                    ChecklistAdd(agent, activity, items),
+                nameof(ChecklistAdd)),
+            AIFunctionFactory.Create(
+                [Description(
+                    "Mark an open checklist item done by id (removes it). " +
+                    "Unknown id → soft fail, plan unchanged.")]
+                (
+                    [Description("Open checklist item id from wake")]
+                    string id) =>
+                    ChecklistComplete(agent, activity, id),
+                nameof(ChecklistComplete)),
+            AIFunctionFactory.Create(
+                [Description(
+                    "Drop an open checklist item by id (replan, not done). " +
+                    "Unknown id → soft fail, plan unchanged.")]
+                (
+                    [Description("Open checklist item id from wake")]
+                    string id) =>
+                    ChecklistRemove(agent, activity, id),
+                nameof(ChecklistRemove)),
             AIFunctionFactory.Create(
                 [Description(ContinuityHandoffGuide.ToolDescription)]
                 (
@@ -240,12 +278,83 @@ public sealed class AgentMailTools(
         }
     }
 
+    private static string ChecklistSet(NodeHandle agent, TurnActivity activity, string[] items)
+    {
+        var checklist = RequireChecklist(agent);
+        if (!checklist.Set(items ?? []))
+        {
+            return "Checklist unchanged.";
+        }
+
+        activity.MarkChecklistMutated();
+        return FormatChecklistResult(checklist, "Checklist replaced.");
+    }
+
+    private static string ChecklistAdd(NodeHandle agent, TurnActivity activity, string[] items)
+    {
+        var checklist = RequireChecklist(agent);
+        if (!checklist.Add(items ?? []))
+        {
+            return "Nothing to add.";
+        }
+
+        activity.MarkChecklistMutated();
+        return FormatChecklistResult(checklist, "Checklist items added.");
+    }
+
+    private static string ChecklistComplete(NodeHandle agent, TurnActivity activity, string id)
+    {
+        var checklist = RequireChecklist(agent);
+        if (!checklist.Complete(id))
+        {
+            return $"No open checklist item id={id}.";
+        }
+
+        activity.MarkChecklistMutated();
+        return FormatChecklistResult(checklist, $"Completed id={id}.");
+    }
+
+    private static string ChecklistRemove(NodeHandle agent, TurnActivity activity, string id)
+    {
+        var checklist = RequireChecklist(agent);
+        if (!checklist.Remove(id))
+        {
+            return $"No open checklist item id={id}.";
+        }
+
+        activity.MarkChecklistMutated();
+        return FormatChecklistResult(checklist, $"Removed id={id}.");
+    }
+
+    private static AgentChecklist RequireChecklist(NodeHandle agent) =>
+        agent.Llm?.Checklist
+        ?? throw new InvalidOperationException($"Node '{agent.Name}' has no checklist.");
+
+    private static string FormatChecklistResult(AgentChecklist checklist, string preface)
+    {
+        var open = checklist.Snapshot();
+        if (open.Count == 0)
+        {
+            return $"{preface} Open checklist: (empty).";
+        }
+
+        var sb = new StringBuilder();
+        sb.Append(preface).Append(" Open checklist:");
+        foreach (var item in open)
+        {
+            sb.AppendLine().Append("- id=").Append(item.Id).Append("; text=").Append(item.Text);
+        }
+
+        return sb.ToString();
+    }
+
     private string CommitContext(NodeHandle agent, TurnActivity activity, string handoff)
     {
         if (!activity.AllowContextCommit)
         {
-            return "Almost — settle mail first with ReplyMail, WriteMail, or DeleteMail, " +
-                   "then call CommitContext. History is still intact.";
+            return "Almost — finish episode progress first " +
+                   "(mail tool, or Checklist* change that alters the plan), " +
+                   "then CommitContext. History is still intact.";
         }
 
         if (string.IsNullOrWhiteSpace(handoff))
@@ -264,6 +373,12 @@ public sealed class AgentMailTools(
         activity.MarkContextCommitted();
         checkpoint.CheckpointClearedSession(agent);
         lifecycle.Publish(new ContextCommitted(agent.Name, text, text.Length));
-        return "Saved. Chat history cleared. Next wake will open with this note, then your inbox.";
+
+        if (TurnContinuation.ShouldContinueInSlot(agent))
+        {
+            return "Saved. History cleared. Next episode opens with this note, inbox, and checklist.";
+        }
+
+        return "Saved. History cleared. " + ContinuityHandoffGuide.DoneWhenBlurb;
     }
 }

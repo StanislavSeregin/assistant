@@ -97,7 +97,9 @@ public sealed class UserBootstrapHostedService(
                 continue;
             }
 
-            if (handle.Llm.NeedsResumeTurn || handle.Inbox.HasMail())
+            if (handle.Llm.NeedsResumeTurn
+                || handle.Inbox.HasMail()
+                || handle.Llm.Checklist.HasOpenItems)
             {
                 handle.Llm.RequestWake();
             }

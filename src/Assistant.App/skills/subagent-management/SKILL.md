@@ -18,6 +18,10 @@ When a subtask needs its own plan, several steps, another craft, or focus you
 cannot spare while coordinating. Brief must be self-contained — do not dump the
 parent thread.
 
+For **your own** multi-step craft: put the plan on `Checklist*` and continue across
+episodes. Hire when you need another craft, true parallel independent slices, or
+focus you cannot spare while coordinating.
+
 (Role skills may hire more strictly — follow them.)
 
 ## Spawn ≠ assign
@@ -53,23 +57,30 @@ Not a task script.
 WHAT: goal · material/paths · constraints · done · what to report.  
 Not HOW: no step-by-step procedures or checklists from a craft skill you must not load.
 
-After briefing — **STOP** (they wake on mail).
+After briefing — end the episode (they wake on mail).
 
 ## Loop
 
 1. Spawn who you need (fan-out ok).
 2. `WriteMail` each.
-3. Optionally short progress to parent.
-4. **STOP.**
+3. Optionally short progress to parent (`WriteMail`).
+4. End the episode.
 
-**Finished report** (delivered the ask, not a question): ReadMail → integrate →
-parent if their ask is done → `DisposeSubagent` if needed → **STOP**.
-Do not ReplyMail the child (dispose clears their mail from your inbox).
+### Finished report from a child
 
-**Clarifying question:** ReadMail → `ReplyMail` the answer → optional delay note
-to parent → **STOP** (do not dispose while they wait on you).
+Delivered the ask (not a question): `ReadMail` → integrate → reply/report to
+**your parent** if their ask is done → `DisposeSubagent` → end episode.
 
-More work for the same child — next brief by mail.
+**No `ReplyMail` to the child** on a finished report. Dispose removes their mail
+from your inbox; a courtesy or “thanks” reply only spawns useless new work.
+
+### Clarifying question from a child
+
+`ReadMail` → `ReplyMail` the answer → optional delay note to parent → end episode  
+(keep them; do not dispose while they wait on you).
+
+More work for the same child — next brief by mail (`WriteMail`), not a reply to
+an already-finished report.
 
 ## Dispose
 

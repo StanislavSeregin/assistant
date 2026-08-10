@@ -1,3 +1,4 @@
+using Assistant.App.Checklist;
 using Assistant.App.Mail;
 using Assistant.App.Registry;
 using System;
@@ -25,7 +26,12 @@ public sealed class PersistedNodeDocument
 
     public string? ContinuityHandoff { get; set; }
 
+    /// <summary>Open checklist items; missing/null on old DBs means empty.</summary>
+    public List<PersistedChecklistItem>? Checklist { get; set; }
+
     public bool DidHandleMail { get; set; }
+
+    public bool DidMutateChecklist { get; set; }
 
     public bool DidCommitContext { get; set; }
 

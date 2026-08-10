@@ -43,7 +43,8 @@ public sealed class SessionCheckpoint(IAgentStateStore store)
             new TurnActivitySnapshot(
                 DidHandleMail: true,
                 DidCommitContext: true,
-                TurnInProgress: false));
+                TurnInProgress: false,
+                DidMutateChecklist: true));
     }
 
     /// <summary>Persist an empty session right after bootstrap/spawn.</summary>
@@ -107,13 +108,15 @@ public sealed class SessionCheckpoint(IAgentStateStore store)
             return new TurnActivitySnapshot(
                 DidHandleMail: false,
                 DidCommitContext: false,
-                TurnInProgress: messageCount > 0);
+                TurnInProgress: messageCount > 0,
+                DidMutateChecklist: false);
         }
 
         return new TurnActivitySnapshot(
             activity.DidHandleMail,
             activity.DidCommitContext,
-            TurnInProgress: messageCount > 0 && !activity.DidCommitContext);
+            TurnInProgress: messageCount > 0 && !activity.DidCommitContext,
+            activity.DidMutateChecklist);
     }
 
     private static JsonElement BuildSessionPayload(JsonElement stateBag)

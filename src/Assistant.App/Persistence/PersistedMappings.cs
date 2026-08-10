@@ -1,3 +1,4 @@
+using Assistant.App.Checklist;
 using Assistant.App.Mail;
 using Assistant.App.Registry;
 using Microsoft.Extensions.AI;
@@ -28,12 +29,16 @@ internal static class PersistedMappings
                 static p => p.Key,
                 static p => p.Value.Value,
                 StringComparer.Ordinal),
-            ContinuityHandoff = node.Llm?.ContinuityHandoff
+            ContinuityHandoff = node.Llm?.ContinuityHandoff,
+            Checklist = node.Llm is null
+                ? null
+                : ChecklistPersistence.ToPersisted(node.Llm.Checklist)
         };
 
         if (turn is { } snapshot)
         {
             doc.DidHandleMail = snapshot.DidHandleMail;
+            doc.DidMutateChecklist = snapshot.DidMutateChecklist;
             doc.DidCommitContext = snapshot.DidCommitContext;
             doc.TurnInProgress = snapshot.TurnInProgress;
         }
@@ -41,6 +46,7 @@ internal static class PersistedMappings
         {
             // Identity-only upsert must not wipe mid-turn flags (e.g. SpawnChild of a peer).
             doc.DidHandleMail = existing.DidHandleMail;
+            doc.DidMutateChecklist = existing.DidMutateChecklist;
             doc.DidCommitContext = existing.DidCommitContext;
             doc.TurnInProgress = existing.TurnInProgress;
         }

@@ -81,6 +81,7 @@ public sealed class AgentBootstrap(
             DisableAgentModeProvider = true,
             DisableWebSearch = true,
             DisableFileMemory = true,
+            DisableTodoProvider = true,
             DisableAgentSkillsProvider = true,
             DisableOpenTelemetry = true
         });
@@ -234,15 +235,15 @@ public sealed class AgentBootstrap(
 
             Org:
             - SpawnSubagent creates identity only; the ask is a separate WriteMail.
-            - Finished child report → read, integrate, report up or DisposeSubagent.
-              Do not ReplyMail courtesy ACK (thanks / ok). Clarifying question → ReplyMail answer; keep them; stop.
+            - Finished child report → read, integrate, report up if needed, DisposeSubagent.
+              No ReplyMail to the child on a finished report (dispose clears their mail).
+              Clarifying question only → ReplyMail the answer; keep them.
             - Hire / brief / dispose details: load `subagent-management` when staffing.
               Role skill owns when to hire and what not to do yourself.{filesBlock}
 
-            Each wake:
-            - load_skill for your role skill if an available skill matches your name, or your
-              instructions name one — before other work.
-            - Handle mail.
+            Rhythm:
+            - Each wake: load_skill for your role skill if an available skill matches your name,
+              or your instructions name one — before other work.
             - {ContinuityHandoffGuide.BootstrapBlurb}
             """;
     }

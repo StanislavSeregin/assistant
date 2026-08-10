@@ -5,6 +5,7 @@ using Assistant.App.Support;
 using Assistant.App.Tools;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Options;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -18,7 +19,8 @@ public sealed class TurnRunner(
     AgentMailTools tools,
     TurnSupportAdvisor turnSupport,
     ILifecycleSink lifecycle,
-    SessionCheckpoint checkpoint)
+    SessionCheckpoint checkpoint,
+    IOptions<Settings> settings)
 {
     private readonly ConcurrentDictionary<string, byte> _invokedToolCalls = new();
     private readonly AsyncLocal<TurnScope?> _scope = new();
@@ -34,18 +36,7 @@ public sealed class TurnRunner(
         WithTurnAsync(
             agent,
             new TurnActivity(),
-            async activity =>
-            {
-                // Turn input must be User role — System is often dropped and the run returns empty.
-                var turnHistoryStart = GetHistoryCount(agent);
-                var (wake, listedMailIds) = TurnPromptBuilder.BuildWakeMessage(agent);
-                lifecycle.Publish(new TurnWake(agent.Name, wake.Text));
-                // Mail that arrived after TryBeginRun may have been queued as mid-turn notices
-                // while still appearing in the wake inbox list — drop those duplicates.
-                DiscardWakeCoveredMailNotifications(agent, listedMailIds);
-                await RunModelAsync(agent, wake, activity, cancellationToken);
-                await ContinueAfterWakeAsync(agent, activity, turnHistoryStart, cancellationToken);
-            },
+            activity => RunEpisodesAsync(agent, activity, resume: false, cancellationToken),
             cancellationToken);
 
     /// <summary>
@@ -56,7 +47,8 @@ public sealed class TurnRunner(
         var llm = RequireBoundLlm(agent);
         var activity = TurnActivity.FromPersisted(
             llm.PersistedDidHandleMail,
-            llm.PersistedDidCommitContext);
+            llm.PersistedDidCommitContext,
+            llm.PersistedDidMutateChecklist);
         llm.NeedsResumeTurn = false;
 
         return WithTurnAsync(
@@ -66,13 +58,20 @@ public sealed class TurnRunner(
             {
                 if (act.DidCommitContext)
                 {
+                    // Committed mid-lease crash: start fresh episodes if work remains.
+                    if (TurnContinuation.ShouldContinueInSlot(agent))
+                    {
+                        act.ResetForContinuation();
+                        await RunEpisodesAsync(agent, act, resume: false, cancellationToken);
+                    }
+
                     return;
                 }
 
                 var historyStart = GetHistoryCount(agent);
-                if (!act.DidHandleMail && agent.Inbox.HasMail())
+                if (!act.DidMakeProgress && agent.Inbox.HasMail())
                 {
-                    var notice = TurnPromptBuilder.BuildFallbackMailNotice(agent);
+                    var notice = TurnPromptBuilder.BuildFallbackProgressNotice(agent);
                     var systemNotice = "[SYSTEM]" + Environment.NewLine + notice;
                     lifecycle.Publish(new SupportAdvice(agent.Name, systemNotice));
                     await RunModelAsync(
@@ -81,15 +80,105 @@ public sealed class TurnRunner(
                         act,
                         cancellationToken);
                 }
-                else if (!act.DidHandleMail)
+                else if (!act.DidMakeProgress && !TurnContinuation.HasOpenChecklist(agent))
                 {
-                    // History exists but flags say mail unsettled and inbox empty — treat mail as done.
+                    // History exists, unsettled progress flags, empty inbox, no checklist —
+                    // treat as progress so compact can finish.
                     act.MarkMailHandled();
                 }
 
                 await ContinueAfterWakeAsync(agent, act, historyStart, cancellationToken);
+                await ContinueEpisodesAfterCommitAsync(agent, act, startEpisode: 1, cancellationToken);
             },
             cancellationToken);
+    }
+
+    private async Task RunEpisodesAsync(
+        NodeHandle agent,
+        TurnActivity activity,
+        bool resume,
+        CancellationToken cancellationToken)
+    {
+        _ = resume;
+        var max = Math.Max(1, settings.Value.MaxChecklistContinuationsPerTurn);
+        for (var episode = 0; episode < max && !NodeShutdown.IsStopped(agent, cancellationToken); episode++)
+        {
+            if (episode > 0)
+            {
+                activity.ResetForContinuation();
+            }
+
+            var turnHistoryStart = GetHistoryCount(agent);
+            var (wake, listedMailIds) = TurnPromptBuilder.BuildWakeMessage(agent);
+            lifecycle.Publish(new TurnWake(agent.Name, wake.Text));
+            DiscardWakeCoveredMailNotifications(agent, listedMailIds);
+            await RunModelAsync(agent, wake, activity, cancellationToken);
+            await ContinueAfterWakeAsync(agent, activity, turnHistoryStart, cancellationToken);
+
+            if (NodeShutdown.IsStopped(agent, cancellationToken))
+            {
+                return;
+            }
+
+            if (!activity.DidCommitContext)
+            {
+                return;
+            }
+
+            if (!TurnContinuation.ShouldContinueInSlot(agent))
+            {
+                return;
+            }
+
+            // Same-slot compact-and-continue.
+        }
+
+        if (TurnContinuation.ShouldContinueInSlot(agent) && !NodeShutdown.IsStopped(agent, cancellationToken))
+        {
+            lifecycle.Publish(new SupportAdvice(
+                agent.Name,
+                "[SYSTEM] Continuation cap reached for this lease; open checklist / parent mail remain. " +
+                "Scheduler may wake again later."));
+        }
+    }
+
+    private async Task ContinueEpisodesAfterCommitAsync(
+        NodeHandle agent,
+        TurnActivity activity,
+        int startEpisode,
+        CancellationToken cancellationToken)
+    {
+        if (!activity.DidCommitContext || !TurnContinuation.ShouldContinueInSlot(agent))
+        {
+            return;
+        }
+
+        var max = Math.Max(1, settings.Value.MaxChecklistContinuationsPerTurn);
+        for (var episode = startEpisode;
+             episode < max && !NodeShutdown.IsStopped(agent, cancellationToken);
+             episode++)
+        {
+            activity.ResetForContinuation();
+            var turnHistoryStart = GetHistoryCount(agent);
+            var (wake, listedMailIds) = TurnPromptBuilder.BuildWakeMessage(agent);
+            lifecycle.Publish(new TurnWake(agent.Name, wake.Text));
+            DiscardWakeCoveredMailNotifications(agent, listedMailIds);
+            await RunModelAsync(agent, wake, activity, cancellationToken);
+            await ContinueAfterWakeAsync(agent, activity, turnHistoryStart, cancellationToken);
+
+            if (!activity.DidCommitContext || !TurnContinuation.ShouldContinueInSlot(agent))
+            {
+                return;
+            }
+        }
+
+        if (TurnContinuation.ShouldContinueInSlot(agent) && !NodeShutdown.IsStopped(agent, cancellationToken))
+        {
+            lifecycle.Publish(new SupportAdvice(
+                agent.Name,
+                "[SYSTEM] Continuation cap reached for this lease; open checklist / parent mail remain. " +
+                "Scheduler may wake again later."));
+        }
     }
 
     private async Task WithTurnAsync(
@@ -157,19 +246,19 @@ public sealed class TurnRunner(
             return;
         }
 
-        var mailSupportAttempt = 0;
-        while (!activity.DidHandleMail && !NodeShutdown.IsStopped(agent, cancellationToken))
+        var progressSupportAttempt = 0;
+        while (!activity.DidMakeProgress && !NodeShutdown.IsStopped(agent, cancellationToken))
         {
-            mailSupportAttempt++;
+            progressSupportAttempt++;
             var advice = await turnSupport.AdviseAsync(
-                TurnSupportMode.Mail,
+                TurnSupportMode.Progress,
                 agent,
                 turnHistoryStart,
-                mailSupportAttempt,
+                progressSupportAttempt,
                 cancellationToken);
             if (string.IsNullOrWhiteSpace(advice))
             {
-                advice = TurnPromptBuilder.BuildFallbackMailNotice(agent);
+                advice = TurnPromptBuilder.BuildFallbackProgressNotice(agent);
             }
 
             var systemNotice = "[SYSTEM]" + Environment.NewLine + advice;

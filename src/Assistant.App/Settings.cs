@@ -13,6 +13,11 @@ public class Settings
 
     public int MaxConcurrentAgentRuns { get; set; } = 1;
 
+    /// <summary>
+    /// Max compact-and-continue episodes inside one model-slot lease (wake→commit loops).
+    /// </summary>
+    public int MaxChecklistContinuationsPerTurn { get; set; } = 32;
+
     public TimeSpan NetworkTimeout { get; set; } = TimeSpan.FromMinutes(15);
 
     public bool EnableAgentSkills { get; set; } = true;

@@ -4,24 +4,49 @@ public sealed class TurnActivity
 {
     public bool DidHandleMail { get; private set; }
 
+    public bool DidMutateChecklist { get; private set; }
+
     public bool DidCommitContext { get; private set; }
 
     /// <summary>
-    /// Commit is allowed as soon as mail work succeeded this turn — including in the same
+    /// Progress this episode: mail-act or a real checklist mutation.
+    /// </summary>
+    public bool DidMakeProgress => DidHandleMail || DidMutateChecklist;
+
+    /// <summary>
+    /// Commit is allowed as soon as progress succeeded this episode — including in the same
     /// model run, before the runner formally enters the compact phase.
     /// </summary>
-    public bool AllowContextCommit => DidHandleMail;
+    public bool AllowContextCommit => DidMakeProgress;
 
     public void MarkMailHandled() => DidHandleMail = true;
 
+    public void MarkChecklistMutated() => DidMutateChecklist = true;
+
     public void MarkContextCommitted() => DidCommitContext = true;
 
-    public static TurnActivity FromPersisted(bool didHandleMail, bool didCommitContext)
+    /// <summary>Clear episode flags so the same lease can run another wake after CommitContext.</summary>
+    public void ResetForContinuation()
+    {
+        DidHandleMail = false;
+        DidMutateChecklist = false;
+        DidCommitContext = false;
+    }
+
+    public static TurnActivity FromPersisted(
+        bool didHandleMail,
+        bool didCommitContext,
+        bool didMutateChecklist = false)
     {
         var activity = new TurnActivity();
         if (didHandleMail)
         {
             activity.MarkMailHandled();
+        }
+
+        if (didMutateChecklist)
+        {
+            activity.MarkChecklistMutated();
         }
 
         if (didCommitContext)
