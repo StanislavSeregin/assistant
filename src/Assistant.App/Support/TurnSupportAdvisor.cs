@@ -27,55 +27,37 @@ public sealed class TurnSupportAdvisor(StatelessAgent stateless, ModelActivityTr
     private const int MaxAdviceChars = 550;
 
     private const string MailInstructions = """
-        An agent failed to finish its turn: no successful ReplyMail, WriteMail, or DeleteMail
+        An agent did not finish its turn: no successful ReplyMail, WriteMail, or DeleteMail
         (and no DisposeSubagent that purged child mail) this turn.
 
-        You write the BODY of a runtime [SYSTEM] notice (no [SYSTEM] prefix). Not mail.
+        Write the BODY of a runtime [SYSTEM] notice (no [SYSTEM] prefix). Not mail.
         No markdown, no lists, no persona ("support", "I", "we").
 
-        Goal: help this agent untangle the CURRENT situation — the real exit, not a generic
-        "send mail" lecture. Read the open-inbox snapshot AND the turn transcript (thinking,
-        tool calls, prior [SYSTEM] notices). Infer what already happened.
-
-        Choose the advice that fits:
-        - Work already done, leftover inbox / rewake loop, agent frustrated that it "already
-          finished": calm it briefly; recommend DeleteMail on the leftover id(s) and/or
-          DisposeSubagent for finished children. Do not demand redoing the task.
-        - Answer / outbound already drafted only as free text / thinking: point at the
-          recipient mail (id/from/subject) and say ReplyMail / WriteMail that text now —
-          thinking reaches no one. Do not tell them they must answer the parent this wake
-          if they are still waiting on children; only ship text that is already meant to go.
+        Untangle THIS turn: read inbox snapshot + transcript; pick the real exit.
+        - Already done / leftover inbox: DeleteMail leftover id(s) and/or DisposeSubagent
+          finished children — do not redo the task.
+        - Outbound only in thinking: ReplyMail / WriteMail that text now (id/from/subject).
+          Defer parent reply while waiting on children is fine.
         - ReadMail without clearing: ReplyMail or DeleteMail that id.
-        - Wrong recipient / parent mail still open: say what to clear or whom to answer
-          (defer while work runs is valid; a finished reply sitting in thinking is not).
-        - Earlier [SYSTEM] notice failed: try a different concrete exit.
+        - Earlier [SYSTEM] failed: different concrete exit.
 
-        When you name mail or children, be specific (ids, from, subject, names from the
-        transcript). Keep it short: a few compact sentences, ~550 characters max. Prefer
-        clarity over a fixed template — structure follows the situation.
+        Be specific (ids, names). A few sentences, ~550 characters max.
         """;
 
     private const string CompactInstructions = """
-        An agent finished mail work but has not called CommitContext yet. CommitContext saves
-        a structured continuity note for the next wake; then chat history is cleared.
+        Mail work is done but CommitContext was not called. CommitContext saves a short
+        continuity note for the next wake; then history clears.
 
-        You write the BODY of a runtime [SYSTEM] notice (no [SYSTEM] prefix). Not mail.
-        Tone: calm, brief, helpful — not scolding. No markdown, no persona ("support", "I", "we").
+        Write the BODY of a runtime [SYSTEM] notice (no [SYSTEM] prefix). Not mail.
+        Calm, brief — no markdown, no persona ("support", "I", "we"). Do not restart mail work.
 
-        Goal: gently get them to call CommitContext. Do not restart mail work. Read the recent
-        transcript and infer what blocked them.
+        - Note only in thinking: CommitContext with that content.
+        - Soft error (empty / mail not settled): say the fix, invite retry.
+        - Unsure what to write: sections Waiting; Open ask; Facts to keep; Next step —
+          fill what applies; briefing not transcript; inbox returns on wake; note is reference.
+        - Earlier notice failed: different nudge.
 
-        Choose what fits:
-        - Note exists only as free text / thinking: suggest CommitContext with that content.
-        - CommitContext returned a soft error (empty / mail not settled): explain the fix
-          simply and invite a retry.
-        - Unsure what to write: point at sections Intent; Progress (resolved vs remaining);
-          Decisions & dead ends; Active thread; Carry forward — fill what applies; briefing
-          not transcript; exact facts; prefer clear and short; inbox returns on wake; note
-          is reference for future self, not new orders.
-        - Earlier notice failed: try a different concrete nudge.
-
-        A few compact sentences, ~550 characters max.
+        A few sentences, ~550 characters max.
         """;
 
     public async Task<string> AdviseAsync(

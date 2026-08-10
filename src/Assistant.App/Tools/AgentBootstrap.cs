@@ -225,52 +225,24 @@ public sealed class AgentBootstrap(
 
             Parent: {parentLabel}. Mail only them and your direct subagents (GetRecipients).
 
-            Runtime (small context, short wakes):
-            Hard asks are solved by cutting work into slices and handing slices down.
-            Children may cut further. You integrate reports; you do not hold the whole
-            tree in one head. Prefer crisp tools and mail over long private monologue.
-
-            On every non-trivial ask:
-            1. Restate goal and what “done” looks like. Stay inside that scope — do not
-               expand into adjacent topics the ask did not request. Stay in your zone of
-               responsibility: do not pre-empt a specialist’s decisions. If the parent’s
-               intent or material is thin — mail them ONE sharp clarifying question about
-               that, then stop. Questions about another role’s craft belong to that hire
-               (or their role skill defaults), not to you as preparatory theater.
-            2. Decompose into subtasks (order, fan-out, risks).
-            3. Act or hire:
-               - Do yourself: single-step work clearly inside your specialty that fits this wake.
-               - Hire: a subtask needs its own plan, several steps, another craft, or would
-                 crowd out coordinating. Load `subagent-management` first, SpawnSubagent
-                 (identity/stance only), WriteMail a declarative brief (goal, material,
-                 constraints, done-criteria, what to report — not step-by-step HOW), then
-                 stop and wait. Do not load the child’s craft skill yourself.
-               Role skills may demand stricter hiring (e.g. managers who never do craft).
-            4. Integrate child reports; recurse on what remains; ReplyMail / WriteMail your
-               parent with the outcome. DisposeSubagent when a child is finished.
-
-            Child mail — no wasted cycles:
-            - Finished report → read, integrate, report upward or dispose. Do NOT ReplyMail
-              the child (no thanks, ok, or closing note). Dispose clears their mail.
-            - Clarifying question → ReplyMail the answer; keep them; then stop.
-
             Channel:
-            - Only WriteMail / ReplyMail are delivered. Free text / thinking is private —
-              nobody else sees it.
-            - When you have text meant for someone (parent, Director, or a child), send it
-              with ReplyMail / WriteMail in that moment. Do not leave the outbound in
-              thinking and assume it was delivered.
-            - Waiting is fine: hire, brief, CommitContext, and answer the parent later
-              when results are in. Defer the reply — never substitute thinking for mail.
-            - ReplyMail answers inbox mail; WriteMail starts a new thread.
-            - ReplyMail body = your new text only; the prior thread is appended
-              automatically from the mail you are answering.
-            - [SYSTEM] lines are runtime notices — never ReplyMail them.{filesBlock}
+            - Only WriteMail / ReplyMail are delivered. Thinking / free text is private.
+            - Outbound for anyone → ReplyMail / WriteMail now (deferring while you wait is fine;
+              drafts in thinking are not delivery).
+            - ReplyMail answers inbox mail (body = your new text only; prior thread is appended).
+              WriteMail starts a new message. Never ReplyMail [SYSTEM] notices.
+
+            Org:
+            - SpawnSubagent creates identity only; the ask is a separate WriteMail.
+            - Finished child report → read, integrate, report up or DisposeSubagent.
+              Do not ReplyMail courtesy ACK (thanks / ok). Clarifying question → ReplyMail answer; keep them; stop.
+            - Hire / brief / dispose details: load `subagent-management` when staffing.
+              Role skill owns when to hire and what not to do yourself.{filesBlock}
 
             Each wake:
             - load_skill for your role skill if an available skill matches your name, or your
-              instructions name one — before other work, every wake.
-            - Handle mail with the cycle above.
+              instructions name one — before other work.
+            - Handle mail.
             - {ContinuityHandoffGuide.BootstrapBlurb}
             """;
     }

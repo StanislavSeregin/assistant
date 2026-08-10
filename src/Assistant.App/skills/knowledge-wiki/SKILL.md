@@ -1,165 +1,85 @@
 ---
 name: knowledge-wiki
 description: >-
-  Craft playbook for the Archivist (or wiki owner) only. Secretary / managers:
-  do NOT load — hire an Archivist and brief by mail. Loading this as a manager
-  is wrong.
+  Archivist craft: markdown wiki — archive and query. Managers: do not load;
+  hire an Archivist and brief by mail.
 ---
 
 # Knowledge Wiki
 
-A **compounding knowledge base**: nested folders of `.md` files you maintain.
-Knowledge is compiled once and kept current — not rediscovered from scratch on every question.
+A compounding knowledge base: nested `.md` folders. Material arrives in mail/chat —
+there is no `raw/` store.
 
-Material arrives **in conversation** (plain text, chat transcripts, notes, mail).
-There is no `raw/` store. You extract, structure, and file into the wiki.
-
-If the wiki root has a schema (`AGENTS.md` or similar), **follow it**.
-This skill is the default when none exists or it is silent.
+If the wiki root has `AGENTS.md`, follow it. Otherwise use this skill.
 
 ## Workspace
 
-- If the manager names a wiki root in mail, use that path (relative to the
-  shared working folder).
-- Otherwise the default root is `wiki/`.
-- If the tree is missing, create it on demand from the Layout below — do not
-  wait for a pre-seeded scaffold.
-- Write and reorganize **inside** the wiki root. Reading above it is fine when
-  you need context; do not scatter wiki pages across the shared tree unless asked.
+- Root from the manager brief, else `wiki/`.
+- Missing tree → create from Layout below.
+- Write only inside the wiki root.
 
 ## Layout
 
 ```
 <wiki-root>/
-  index.md             # Content catalog — read first on every query
-  log.md               # Append-only timeline
-  intakes/             # One page per archived batch (provenance)
-  entities/            # People, orgs, products, places
-  concepts/            # Ideas, frameworks, decisions, definitions
-  synthesis/           # Comparisons, theses, overviews
-  AGENTS.md            # Optional per-wiki schema
+  index.md      # catalog — read first on every query
+  log.md        # append-only
+  intakes/      # one page per batch (provenance)
+  entities/
+  concepts/
+  synthesis/
+  AGENTS.md     # optional
 ```
 
-Adapt category folders to the domain. Keep the tree as nested folders and markdown only.
+Adapt category folders to the domain. Markdown + folders only.
 
-## Hard rules
+## Rules
 
-1. **Markdown only** — nested folders and `.md` files. No databases.
-2. **Update `index.md` on every structural change** (create, rename, delete, major rewrite).
-3. **Append to `log.md`** after every archive, filed answer, and lint. Never rewrite history.
-4. **Prefer updating existing pages** over near-duplicates. One canonical page per entity/concept.
-5. **Record provenance.** Link claims to an `intakes/` page (and note date / channel when known).
-6. **Flag contradictions** on the affected pages; do not silently overwrite.
-7. **Do not invent facts.** If the material is thin, say what is missing.
-8. **Scope lock.** File only claims present in this batch (or a clear ask). Do not expand
-   into adjacent topics, guess domain essays, or “enrich” from general knowledge.
-   A team named Identity is a team name — not a cue to write about auth or design patterns
-   unless the material says so. Thin batch → thin pages. Stop when the stated facts are filed.
+1. Only `.md` inside the wiki tree.
+2. Any structural change → update `index.md`.
+3. After archive / query-with-write / lint → append `log.md`.
+4. Prefer updating existing pages; one canonical page per entity/concept.
+5. Link claims to `intakes/` (+ date/channel when known).
+6. Flag contradictions on pages; do not silently overwrite.
+7. Do not invent facts. Thin batch → thin pages. Only claims from material/ask.
 
-## Conventions
+## Page shape
 
-### Naming
+Minimal frontmatter: `title`, `type` (`intake|entity|concept|synthesis`), `updated`,
+`tags`, `intakes`.  
+Body: short summary → facts → links → open questions → provenance.
 
-- Files: `kebab-case.md`
-- One topic per file
-- Rename rarely; when you do, fix links and index
-
-### Links
-
-Relative markdown links:
+`log.md` prefix:
 
 ```markdown
-See [Decision log](../concepts/decision-log.md).
+## [YYYY-MM-DD] archive | short title
+- Added `…`
+- Updated `…`
 ```
 
-### Page shape
+## Archive
 
-Minimal frontmatter:
+1. List **stated claims** only (no adjacent topics).
+2. `intakes/<date>-<slug>.md` — what arrived, what was filed, which pages.
+3. Create/update pages for those claims only.
+4. Cross-links only where the batch already relates things.
+5. Refresh `index.md` + append `log.md`.
+6. Short report to manager: paths and gaps. **STOP**.
 
-```yaml
----
-title: Decision log
-type: concept          # intake | entity | concept | synthesis
-updated: 2026-08-04
-tags: [decisions]
-intakes: [intakes/2026-08-04-team-chat.md]
----
-```
+## Query
 
-Body:
+1. Read `index.md`; open needed pages.
+2. Answer with path citations (and intakes).
+3. If the answer is reusable, file under `synthesis/`, update index and log.
+4. **STOP**.
 
-1. One-paragraph summary
-2. Key points / facts
-3. Relations (links)
-4. Open questions / contradictions (if any)
-5. Provenance links
+## Lint
 
-### `index.md`
+Only when the ask is lint (or they explicitly request it after many archives).  
+Reconcile index↔files; broken links; orphans; contradictions. Fix safe issues;
+ask before judgment calls. Log + **STOP**.
 
-Catalog by category. Each entry: link + one-line summary.
+## Checklist
 
-**On every query: read `index.md` first**, then open only needed pages.
-
-### `log.md`
-
-Append-only, parseable prefix:
-
-```markdown
-## [2026-08-04] archive | Team chat excerpt
-- Added `intakes/2026-08-04-team-chat.md`
-- Updated `entities/alice.md`, `concepts/decision-log.md`
-- Index refreshed
-```
-
-Actions: `archive`, `query`, `lint`, `refile`.
-
-## Operations
-
-### Archive
-
-When material arrives in chat/mail:
-
-1. Read the full batch. List the **stated claims** only. Clarify only if the ask
-   itself is ambiguous — not to fish for extra topics.
-2. Write `intakes/<date>-<short-slug>.md` — what arrived, claims filed, pages touched.
-3. Update or create pages for those claims (usually one entity / a few facts).
-   Do **not** open `concepts/` or `synthesis/` unless the batch explicitly contains
-   that content or the ask requests it.
-4. Wire cross-links only where the batch already relates things.
-5. Refresh `index.md`.
-6. Append a log entry.
-7. Confirm briefly what was filed (paths), then stop.
-
-Minimalism wins: a short intro about a person → one intake + one entity page,
-not a mini-encyclopedia.
-
-### Query
-
-1. Read `index.md`; select relevant pages.
-2. Synthesize an answer with citations to wiki pages (and intakes).
-3. If the answer is reusable, file it under `synthesis/` (or the right category), update index, append log.
-4. Do not leave valuable synthesis only in chat.
-
-### Lint
-
-When asked, or after many archives:
-
-1. Compare index vs. actual files.
-2. Find contradictions, stale claims, orphans, mentioned topics without pages.
-3. Fix safe issues (broken links, index drift, missing backlinks).
-4. Ask before rewriting substance on judgment calls.
-5. Append a log entry.
-
-## Session checklist
-
-Start:
-
-- [ ] Locate wiki root and schema
-- [ ] Read schema if present; else use this skill
-- [ ] Skim `index.md` and recent `log.md` entries
-
-Finish:
-
-- [ ] Pages linked and non-duplicative
-- [ ] `index.md` matches the tree
-- [ ] `log.md` has an entry for this work
+Start: locate root → schema/`AGENTS.md` → `index.md` (and recent `log.md` if useful).  
+Finish: links ok, index fresh, log written.
